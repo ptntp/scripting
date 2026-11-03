@@ -202,14 +202,17 @@ function Row({
 }) {
   return (
     <HStack spacing={3} frame={fill ? { maxWidth: "infinity", maxHeight: "infinity" } : undefined}>
+      {/* 名次固定兩位數（01、02…10），欄寬依兩位數計算，必要時縮小而不是顯示「…」 */}
       <Text
         font={font}
         fontWeight="semibold"
         monospacedDigit
         foregroundStyle="secondaryLabel"
-        frame={{ width: font * 1.3, alignment: "trailing" }}
+        lineLimit={1}
+        minScaleFactor={0.7}
+        frame={{ width: font * 1.5, alignment: "trailing" }}
       >
-        {pos}
+        {/^\d+$/.test(pos) ? pos.padStart(2, "0") : pos}
       </Text>
       <TeamBar teamId={teamId} teamName={teamName} height={font} />
       {/* 名字區塊撐滿剩餘寬度、數值靠右（不用 Spacer，窄欄也不會被最小間距擠掉） */}
