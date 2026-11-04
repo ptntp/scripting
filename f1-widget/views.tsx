@@ -39,7 +39,7 @@ import {
   gpName,
   gpShort,
   isSessionLive,
-  sessionEnd,
+  sessionCutoff,
   sessionLabel,
   t,
   teamColor,
@@ -344,7 +344,7 @@ function NextLabel({ data, session, font = 11, withTime = false }: { data: Widge
 
 /** 節次狀態：是否進行中、是否為下一節、文字顏色（已結束變淡） */
 function sessionStatus(se: Session, data: WidgetData) {
-  const done = sessionEnd(se) <= data.now
+  const done = sessionCutoff(data.state.race!, se) <= data.now
   const isNext = data.state.next?.key === se.key
   return {
     live: isSessionLive(se, data.now),

@@ -430,6 +430,21 @@ export function sessionEnd(se: Session): number {
   return se.hasTime ? se.end : (Math.floor(se.start / DAY) + 1) * DAY
 }
 
+/**
+ * 節次在所屬比賽中的截止時間（用來決定「下一節」與是否已過）：
+ * - 已知時間：預估結束時間
+ * - 時間待定：該 UTC 日期結束；但若同一天、排在它之後的已知時間節次已經開跑，就提早到那一刻，
+ *   避免待定節次遮住正在進行或接下來的節次
+ */
+export function sessionCutoff(race: Race, se: Session): number {
+  let cutoff = sessionEnd(se)
+  if (se.hasTime) return cutoff
+  for (const s of race.sessions) {
+    if (s.hasTime && s.start > se.start && s.start < cutoff) cutoff = s.start
+  }
+  return cutoff
+}
+
 /** 節次是否進行中；時間待定的節次一律不算 */
 export function isSessionLive(se: Session, now: number): boolean {
   return se.hasTime && se.start <= now && now < sessionEnd(se)
@@ -463,8 +478,8 @@ export interface WeekendState {
 
 export function computeState(races: Race[], now: number): WeekendState {
   const sorted = [...races].sort((a, b) => a.raceStart - b.raceStart)
-  const race = sorted.find(r => r.sessions.some(s => sessionEnd(s) > now)) ?? null
-  const next = race ? race.sessions.find(s => sessionEnd(s) > now) ?? null : null
+  const race = sorted.find(r => r.sessions.some(s => sessionCutoff(r, s) > now)) ?? null
+  const next = race ? race.sessions.find(s => sessionCutoff(race, s) > now) ?? null : null
   const live = !!next && isSessionLive(next, now)
   const weekend = !!race && now >= race.sessions[0].start - 12 * HOUR
 
@@ -486,7 +501,7 @@ export function nextReloadDate(state: WeekendState, now: number, awaitingResult:
     for (const s of state.race.sessions) {
       // 時間待定的節次只在有效截止時重新整理，不為暫代的中午排程
       if (s.hasTime) candidates.push(s.start, s.end, s.start - 24 * HOUR)
-      else candidates.push(sessionEnd(s))
+      else candidates.push(sessionCutoff(state.race, s))
     }
   }
   if (state.lastRace) {
