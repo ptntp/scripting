@@ -191,6 +191,9 @@ function toMs(date?: string, time?: string): { ms: number; hasTime: boolean } | 
   return isNaN(ms) ? null : { ms, hasTime }
 }
 
+// jolpica 的欄位名稱 → 節次。衝刺排位有兩個名稱：2023 年叫 SprintShootout、2024 年起叫
+// SprintQualifying（見 jolpica docs/ergast_differences.md）。兩個都對應到 sq，
+// 同一場最多只會有其中一個，parseRace 的 seen 也會擋掉重複。
 const SESSION_FIELDS: [string, SessionKey][] = [
   ["FirstPractice", "fp1"],
   ["SecondPractice", "fp2"],

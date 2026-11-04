@@ -854,33 +854,41 @@ export function CircularView({ data }: { data: WidgetData }) {
   const lang = data.cfg.lang
   const s = t(lang)
   const next = data.state.next
-  let top = "F1"
+  const live = !!next && next.start <= data.now
+  // 上：節次縮寫；中：天數 / 開始時間 / 進行中則為已經過時間；下：單位或狀態
   let main = "🏁"
   let bottom = ""
-  if (next) {
-    top = sessionLabel(next.key, lang, true)
+  if (next && live) {
+    bottom = s.live
+  } else if (next) {
     const diff = dayDiff(next.start, data.now)
-    if (next.start <= data.now) {
-      main = "LIVE"
-      bottom = s.live
-    } else if (diff >= 2) {
-      main = String(diff)
-      bottom = s.daysUnit
-    } else {
-      main = fmtSessionTime(next, lang)
-      bottom = diff === 0 ? s.today : s.tomorrow
-    }
+    main = diff >= 2 ? String(diff) : fmtSessionTime(next, lang)
+    bottom = diff >= 2 ? s.daysUnit : diff === 0 ? s.today : s.tomorrow
   }
   return (
     <ZStack>
       <AccessoryWidgetBackground />
       <VStack spacing={0}>
         <Text font={10} fontWeight="semibold" lineLimit={1} minScaleFactor={0.6} widgetAccentable>
-          {top}
+          {next ? sessionLabel(next.key, lang, true) : "F1"}
         </Text>
-        <Text font={main.length > 3 ? 15 : 22} fontWeight="bold" monospacedDigit lineLimit={1} minScaleFactor={0.5}>
-          {main}
-        </Text>
+        {live ? (
+          // 進行中：顯示從節次開始到現在的經過時間（iOS 原生計時，自動跳動）
+          <DateLabel
+            date={new Date(next!.start)}
+            style="timer"
+            font={15}
+            fontWeight="bold"
+            monospacedDigit
+            lineLimit={1}
+            minScaleFactor={0.5}
+            multilineTextAlignment="center"
+          />
+        ) : (
+          <Text font={main.length > 3 ? 15 : 22} fontWeight="bold" monospacedDigit lineLimit={1} minScaleFactor={0.5}>
+            {main}
+          </Text>
+        )}
         <Text font={9} foregroundStyle="secondaryLabel" lineLimit={1} minScaleFactor={0.6}>
           {bottom}
         </Text>
