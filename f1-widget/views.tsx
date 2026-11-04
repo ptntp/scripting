@@ -759,10 +759,73 @@ function Columns({ left, right, fill = false }: { left: VirtualNode | VirtualNod
   )
 }
 
+/**
+ * 兩欄並排、逐列成對的排行：每一列是一個 HStack（左欄第 i 名、右欄第 half+i 名）。
+ * 和 Columns 不同的是，多個區塊放在同一個 VStack 時，所有列平均分配高度，列距一致。
+ */
+function pairedLines(items: RowItem[], font: number): VirtualNode[] {
+  const half = Math.ceil(items.length / 2)
+  return Array.from({ length: half }, (_, i) => {
+    const right = items[half + i]
+    return (
+      <HStack alignment="center" spacing={14} frame={FILL}>
+        <Row item={items[i]} font={font} fill />
+        {right ? (
+          <Row item={right} font={font} fill />
+        ) : (
+          <Text font={font} frame={FILL}>
+            {" "}
+          </Text>
+        )}
+      </HStack>
+    )
+  })
+}
+
+/**
+ * 特大尺寸（iPhone 直式約 378×610pt）的積分區：顯示完整名單，不再固定 10 名。
+ * 自動：車手（兩欄）＋車隊（兩欄）上下排；drivers：車手兩欄；teams：車隊單欄。
+ */
+function TallStandings({ data }: { data: WidgetData }) {
+  const s = t(data.cfg.lang)
+  const mode = data.cfg.mode
+  const drivers = driverItems(data, 0, 99, { full: true })
+  const teams = teamItems(data, 0, 99)
+  const empty = <Text font={11} foregroundStyle="secondaryLabel">{s.noStandings}</Text>
+  const title = (text: string, top = 0) => (
+    <VStack alignment="leading" padding={{ top, bottom: 2 }}>
+      <SectionTitle title={text} font={12} />
+    </VStack>
+  )
+
+  let children: VirtualNode[]
+  if (mode === "teams") {
+    children = [title(s.teams), ...(teams.length ? teams.map(item => <Row item={item} font={14} fill />) : [empty])]
+  } else if (mode === "drivers") {
+    children = [title(s.drivers), ...(drivers.length ? pairedLines(drivers, 14) : [empty])]
+  } else {
+    // 賽後上方多了正賽結果，字級維持 12；平常 13
+    const f = data.result ? 12 : 13
+    children = [
+      title(s.drivers),
+      ...(drivers.length ? pairedLines(drivers, f) : [empty]),
+      title(s.teams, 6),
+      ...(teams.length ? pairedLines(teams, f) : [empty]),
+    ]
+  }
+  return (
+    <VStack alignment="leading" spacing={0} frame={FILL}>
+      {children}
+    </VStack>
+  )
+}
+
 export function LargeView({ data }: { data: WidgetData }) {
   const s = t(data.cfg.lang)
   const race = hasRace(data)
   const mode = data.cfg.mode
+  // 大尺寸最高約 394pt；特大尺寸（直式）約 610pt，用高度判斷，不依賴 iOS 回傳的尺寸名稱
+  const tall = data.size.height >= 500
   // 積分榜 10 名；賽後上半部顯示前十名結果，積分榜改 5 名
   const rows = data.result ? 5 : 10
   // 列字級與區塊標題不小於中尺寸（中尺寸列字 12）
@@ -787,7 +850,9 @@ export function LargeView({ data }: { data: WidgetData }) {
 
   // 下半部：積分榜（自動 / 賽程模式 = 車手 + 車隊並排），列高平均分配填滿剩餘空間
   let bottom: VirtualNode
-  if (mode === "drivers" || mode === "teams") {
+  if (tall) {
+    bottom = <TallStandings data={data} />
+  } else if (mode === "drivers" || mode === "teams") {
     const half = mode === "teams" ? Math.ceil((data.teams?.rows.length ?? 0) / 2) || 6 : rows
     const items = (from: number) =>
       mode === "teams" ? teamItems(data, from, half) : driverItems(data, from, half, { full: true })
