@@ -24,7 +24,6 @@ import {
   RaceResult,
   Session,
   Standings,
-  Strings,
   TeamRow,
   Weather,
   WeekendState,
@@ -39,6 +38,8 @@ import {
   fmtWhen,
   gpName,
   gpShort,
+  isSessionLive,
+  sessionEnd,
   sessionLabel,
   t,
   teamColor,
@@ -72,6 +73,7 @@ export interface WidgetData {
   stale: boolean
   updatedAt: number
   nextSeasonYear: number | null
+  seasonOver: boolean // 本季正賽已確定全部結束（賽程抓不到時為 false）
   error: boolean // 沒有任何可顯示的資料
 }
 
@@ -101,14 +103,12 @@ function TrackMap({
   width,
   height,
   lineWidth = 3,
-  color = "label",
   offsetY = 0,
 }: {
   race: Race
   width: number
   height: number
   lineWidth?: number
-  color?: string
   offsetY?: number
 }) {
   // 舊版 Scripting 沒有 Path2D / PathShape 時直接略過
@@ -152,8 +152,8 @@ function TrackMap({
 
   return (
     <ZStack frame={frame} offset={offsetY ? { x: 0, y: offsetY } : undefined}>
-      <PathShape path={line} stroke={stroke(color, lineWidth + 4)} opacity={0.12} frame={frame} />
-      <PathShape path={line} stroke={stroke(color, lineWidth)} frame={frame} />
+      <PathShape path={line} stroke={stroke("label", lineWidth + 4)} opacity={0.12} frame={frame} />
+      <PathShape path={line} stroke={stroke("label", lineWidth)} frame={frame} />
       <PathShape path={startLine} stroke={stroke(F1_RED, Math.max(2, lineWidth * 0.8))} frame={frame} widgetAccentable />
     </ZStack>
   )
@@ -303,7 +303,7 @@ function Countdown({
       </Text>
     )
   }
-  const live = session.start <= data.now
+  const live = isSessionLive(session, data.now)
   return (
     <DateLabel
       date={new Date(session.start)}
@@ -325,7 +325,7 @@ function NextLabel({ data, session, font = 11, withTime = false }: { data: Widge
   const s = t(data.cfg.lang)
   const name = sessionLabel(session.key, data.cfg.lang)
   const when = withTime ? ` · ${fmtWhen(session, data.cfg.lang, data.now)}` : ""
-  if (session.start <= data.now) {
+  if (isSessionLive(session, data.now)) {
     return (
       <HStack spacing={4}>
         <LiveDot />
@@ -344,10 +344,10 @@ function NextLabel({ data, session, font = 11, withTime = false }: { data: Widge
 
 /** 節次狀態：是否進行中、是否為下一節、文字顏色（已結束變淡） */
 function sessionStatus(se: Session, data: WidgetData) {
-  const done = se.end <= data.now
+  const done = sessionEnd(se) <= data.now
   const isNext = data.state.next?.key === se.key
   return {
-    live: se.start <= data.now && !done,
+    live: isSessionLive(se, data.now),
     isNext,
     color: done ? "tertiaryLabel" : isNext ? "label" : "secondaryLabel",
   }
@@ -541,9 +541,16 @@ export function AccessoryErrorView({ data }: { data: WidgetData }) {
   )
 }
 
-/** 賽季結束：年度冠軍 */
-function ChampionCard({ data, expand = true }: { data: WidgetData; expand?: boolean }) {
+/** 沒有下一場比賽時：確認季末顯示年度冠軍；賽程抓不到則只說明，不把積分領先者稱為冠軍 */
+function SeasonSummary({ data, expand = true }: { data: WidgetData; expand?: boolean }) {
   const s = t(data.cfg.lang)
+  if (!data.seasonOver) {
+    return (
+      <Text font={12} foregroundStyle="secondaryLabel" lineLimit={3}>
+        {s.noSchedule}
+      </Text>
+    )
+  }
   const champ = data.drivers?.rows[0]
   return (
     <VStack alignment="leading" spacing={3} frame={expand ? { ...FILL, alignment: "topLeading" } : { maxWidth: "infinity", alignment: "topLeading" }}>
@@ -579,7 +586,7 @@ function ChampionCard({ data, expand = true }: { data: WidgetData; expand?: bool
 // ─────────────────────────────────────────────
 
 export function SmallView({ data }: { data: WidgetData }) {
-  return <Root>{hasRace(data) ? <SmallRaceCard data={data} /> : <ChampionCard data={data} />}</Root>
+  return <Root>{hasRace(data) ? <SmallRaceCard data={data} /> : <SeasonSummary data={data} />}</Root>
 }
 
 export function MediumView({ data }: { data: WidgetData }) {
@@ -595,8 +602,8 @@ export function MediumView({ data }: { data: WidgetData }) {
   const H = data.size.height - PADDING * 2
   const leftW = Math.round(((data.size.width - PADDING * 2 - gap * 2) * 2) / 3)
 
-  let title = s.drivers
-  let content: VirtualNode = <RowList data={data} items={driverItems(data, 0, 6, { numbers: true })} fill />
+  let title: string
+  let content: VirtualNode
   if (panel === "teams") {
     title = s.teams
     content = <RowList data={data} items={teamItems(data, 0, 6, true)} fill />
@@ -606,6 +613,9 @@ export function MediumView({ data }: { data: WidgetData }) {
   } else if (panel === "schedule") {
     title = s.schedule
     content = <ScheduleList data={data} />
+  } else {
+    title = s.drivers
+    content = <RowList data={data} items={driverItems(data, 0, 6, { numbers: true })} fill />
   }
 
   return (
@@ -615,7 +625,7 @@ export function MediumView({ data }: { data: WidgetData }) {
           <MediumRaceCard data={data} width={leftW} height={H} />
         ) : (
           <VStack frame={{ width: leftW, height: H }}>
-            <ChampionCard data={data} />
+            <SeasonSummary data={data} />
           </VStack>
         )}
         <Rectangle fill={DIVIDER} frame={{ width: 0.5 }} />
@@ -792,7 +802,7 @@ export function LargeView({ data }: { data: WidgetData }) {
 
   return (
     <Root spacing={6}>
-      {race ? <LargeHeader data={data} /> : <ChampionCard data={data} expand={false} />}
+      {race ? <LargeHeader data={data} /> : <SeasonSummary data={data} expand={false} />}
       {top}
       <Rectangle fill={DIVIDER} frame={{ height: 0.5 }} />
       {bottom}
@@ -812,6 +822,7 @@ export function RectangularView({ data }: { data: WidgetData }) {
   const race = data.state.race
   const next = data.state.next
   if (!race || !next) {
+    if (!data.seasonOver) return <AccessoryErrorView data={data} />
     const champ = data.drivers?.rows[0]
     return (
       <VStack alignment="leading" spacing={1} frame={{ maxWidth: "infinity", alignment: "leading" }}>
@@ -840,7 +851,7 @@ export function RectangularView({ data }: { data: WidgetData }) {
         <VStack alignment="leading" spacing={0}>
           <Countdown data={data} session={next} font={18} />
           <Text font={12} foregroundStyle="secondaryLabel" lineLimit={1}>
-            {next.start <= data.now ? s.live : fmtWhen(next, lang, data.now)}
+            {isSessionLive(next, data.now) ? s.live : fmtWhen(next, lang, data.now)}
           </Text>
         </VStack>
         <Spacer />
@@ -854,9 +865,10 @@ export function CircularView({ data }: { data: WidgetData }) {
   const lang = data.cfg.lang
   const s = t(lang)
   const next = data.state.next
-  const live = !!next && next.start <= data.now
+  const live = !!next && isSessionLive(next, data.now)
   // 上：節次縮寫；中：天數 / 開始時間 / 進行中則為已經過時間；下：單位或狀態
-  let main = "🏁"
+  // 季末顯示旗幟；完全沒有資料顯示「無資料」
+  let main = data.error ? s.unavailable : "🏁"
   let bottom = ""
   if (next && live) {
     bottom = s.live
@@ -902,9 +914,9 @@ export function InlineView({ data }: { data: WidgetData }) {
   const s = t(lang)
   const race = data.state.race
   const next = data.state.next
-  let text = `🏁 F1 · ${s.seasonOver}`
+  let text = data.error ? `🏁 F1 · ${s.noData}` : `🏁 F1 · ${data.seasonOver ? s.seasonOver : s.noSchedule}`
   if (race && next) {
-    const when = next.start <= data.now ? s.live : fmtWhen(next, lang, data.now, false)
+    const when = isSessionLive(next, data.now) ? s.live : fmtWhen(next, lang, data.now, false)
     text = `${flag(race.country)} ${gpShort(race.raceName, lang)} ${sessionLabel(next.key, lang, true)} ${when}`
   }
   return <Text>{text}</Text>

@@ -7,6 +7,7 @@
 | 資料夾 | 說明 |
 | --- | --- |
 | [`f1-widget/`](f1-widget/) | F1 小工具：下一節倒數、賽道路線圖、比賽週末賽程與天氣、積分榜、正賽結果（主畫面＋鎖定畫面） |
+| [`tests/`](tests/) | F1 小工具資料層的回歸測試（`node --test tests/f1-widget.test.mjs`），不會同步到 iPhone |
 
 ## 在 iPhone 上安裝（自動同步）
 

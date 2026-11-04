@@ -7,7 +7,7 @@
 
 const BASE = "https://api.jolpi.ca/ergast/f1"
 // jolpica 要求自訂 User-Agent（App 名稱 + 版本）
-const USER_AGENT = "ScriptingF1Widget/1.2 (Scripting iOS)"
+const USER_AGENT = "ScriptingF1Widget/1.3 (Scripting iOS)"
 const CACHE_PREFIX = "f1w:"
 
 export const MIN = 60 * 1000
@@ -295,7 +295,9 @@ export function loadTeamStandings(ttlMs: number): Promise<Loaded<Standings<TeamR
 
 /** 讀取最近一場正賽結果；expected 為預期的 season/round，未出爐前每 10 分鐘重試 */
 export function loadLastResult(expected: { season: number; round: number }): Promise<Loaded<RaceResult | null>> {
-  const matches = (v: RaceResult | null) => !!v && v.season === expected.season && v.round === expected.round
+  // 同一站且已有名次才算出爐；空 Results 和上一站結果都走 10 分鐘重試
+  const matches = (v: RaceResult | null) =>
+    !!v && v.season === expected.season && v.round === expected.round && v.rows.length > 0
   return cached<RaceResult | null>(
     "lastResult",
     (entry, now) => (matches(entry.v) ? now - entry.t < 12 * HOUR : now - entry.t < 10 * MIN),
@@ -423,6 +425,33 @@ export function weatherSymbol(code: number, isDay: boolean): string {
 // 賽程狀態
 // ─────────────────────────────────────────────
 
+/** 節次的有效結束時間；時間待定時以該 UTC 日期結束為準，不把暫代的 UTC 中午當成真實開跑時間 */
+export function sessionEnd(se: Session): number {
+  return se.hasTime ? se.end : (Math.floor(se.start / DAY) + 1) * DAY
+}
+
+/** 節次是否進行中；時間待定的節次一律不算 */
+export function isSessionLive(se: Session, now: number): boolean {
+  return se.hasTime && se.start <= now && now < sessionEnd(se)
+}
+
+/** 正賽已確定開跑時間且已開跑 */
+function raceStarted(r: Race, now: number): boolean {
+  const rs = r.sessions.find(s => s.key === "race")
+  return !!rs && rs.hasTime && r.raceStart <= now
+}
+
+/** 本季所有正賽都已確定時間且結束；空賽程或仍有時間待定的正賽都不算季末 */
+export function isSeasonOver(races: Race[], now: number): boolean {
+  return (
+    races.length > 0 &&
+    races.every(r => {
+      const rs = r.sessions.find(s => s.key === "race")
+      return !!rs && rs.hasTime && sessionEnd(rs) <= now
+    })
+  )
+}
+
 export interface WeekendState {
   race: Race | null // 本週末或下一場比賽
   next: Session | null // 下一個（或正在進行的）節次
@@ -434,13 +463,14 @@ export interface WeekendState {
 
 export function computeState(races: Race[], now: number): WeekendState {
   const sorted = [...races].sort((a, b) => a.raceStart - b.raceStart)
-  const race = sorted.find(r => r.sessions[r.sessions.length - 1].end > now) ?? null
-  const next = race ? race.sessions.find(s => s.end > now) ?? null : null
-  const live = !!next && next.start <= now
+  const race = sorted.find(r => r.sessions.some(s => sessionEnd(s) > now)) ?? null
+  const next = race ? race.sessions.find(s => sessionEnd(s) > now) ?? null : null
+  const live = !!next && isSessionLive(next, now)
   const weekend = !!race && now >= race.sessions[0].start - 12 * HOUR
 
+  // 時間待定的正賽不算開跑，也不會觸發「正賽結果」
   let lastRace: Race | null = null
-  for (const r of sorted) if (r.raceStart <= now) lastRace = r
+  for (const r of sorted) if (raceStarted(r, now)) lastRace = r
   const sinceLast = lastRace ? now - lastRace.raceStart : Infinity
   const showResult = sinceLast >= RESULT_WINDOW_FROM && sinceLast <= RESULT_WINDOW_TO
 
@@ -454,7 +484,9 @@ export function nextReloadDate(state: WeekendState, now: number, awaitingResult:
 
   if (state.race) {
     for (const s of state.race.sessions) {
-      candidates.push(s.start, s.end, s.start - 24 * HOUR)
+      // 時間待定的節次只在有效截止時重新整理，不為暫代的中午排程
+      if (s.hasTime) candidates.push(s.start, s.end, s.start - 24 * HOUR)
+      else candidates.push(sessionEnd(s))
     }
   }
   if (state.lastRace) {
@@ -493,7 +525,9 @@ const STRINGS = {
     tomorrow: "明天",
     pts: "分",
     daysUnit: "天",
-    noStandings: "賽季尚未開始",
+    noStandings: "暫無排名資料",
+    noSchedule: "賽程暫時無法載入",
+    unavailable: "無資料",
     nextSeason: (y: number) => `${y} 賽季`,
     weatherSoon: "天氣預報將於賽前 15 天提供",
     tbc: "待定",
@@ -518,7 +552,9 @@ const STRINGS = {
     tomorrow: "Tmrw",
     pts: "pts",
     daysUnit: "days",
-    noStandings: "Season not started",
+    noStandings: "No ranking data available",
+    noSchedule: "Schedule unavailable",
+    unavailable: "No data",
     nextSeason: (y: number) => `${y} season`,
     weatherSoon: "Forecast available 15 days before the race",
     tbc: "TBC",

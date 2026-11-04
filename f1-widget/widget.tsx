@@ -3,10 +3,12 @@ import { Widget } from "scripting"
 
 import {
   HOUR,
+  Loaded,
   MIN,
   RaceResult,
   WeekendState,
   computeState,
+  isSeasonOver,
   loadDriverStandings,
   loadLastResult,
   loadSchedule,
@@ -51,27 +53,35 @@ async function buildData(family: string): Promise<{ data: WidgetData; reload: Da
   const now = Date.now()
   const isAccessory = family.startsWith("accessory")
   const isLarge = family.startsWith("systemLarge") || family.startsWith("systemExtraLarge")
+  const isMedium = !isAccessory && !isLarge && family !== "systemSmall" // 未知尺寸沿用中尺寸
 
   let stale = false
   const fetchedTimes: number[] = []
+  // 記錄實際用到的資料：任一來源是舊快取就標示「離線資料」，更新時間取最舊的一筆
+  const used = (l: Loaded<unknown> | null) => {
+    if (!l) return
+    stale = stale || l.stale
+    fetchedTimes.push(l.fetchedAt)
+  }
   let state: WeekendState = computeState([], now)
+  let seasonOver = false
   let nextSeasonYear: number | null = null
 
   // 1. 賽程
   try {
     const sched = await loadSchedule("current")
-    stale = stale || sched.stale
-    fetchedTimes.push(sched.fetchedAt)
+    used(sched)
     state = computeState(sched.data, now)
+    seasonOver = isSeasonOver(sched.data, now)
 
-    // 本季已全部跑完 → 嘗試下一季賽程
-    if (!state.race) {
-      const season = sched.data[0]?.season ?? new Date(now).getFullYear()
+    // 本季確定全部跑完 → 嘗試下一季賽程（空賽程或抓取失敗不算季末，不會跳過本季）
+    if (seasonOver) {
+      const season = sched.data[0].season
       try {
         const ns = await loadSchedule(season + 1)
         if (ns.data.length) {
-          const s2 = computeState(ns.data, now)
-          state = { ...s2, lastRace: state.lastRace, showResult: state.showResult }
+          used(ns)
+          state = { ...computeState(ns.data, now), lastRace: state.lastRace, showResult: state.showResult }
           nextSeasonYear = season + 1
         }
       } catch {
@@ -79,36 +89,32 @@ async function buildData(family: string): Promise<{ data: WidgetData; reload: Da
       }
     }
   } catch {
-    // 賽程抓不到且沒有快取：之後若連積分也沒有就顯示錯誤畫面
+    // 賽程抓不到且沒有快取
   }
 
-  // 2. 積分榜與正賽結果（依尺寸只抓需要的）
-  const standingsTTL = state.weekend || state.showResult ? 30 * MIN : 6 * HOUR
-  const needDrivers = !isAccessory || !state.race
-  const needTeams = isLarge || (family === "systemMedium" && cfg.mode === "teams")
-  const needResult = state.showResult && cfg.mode === "auto" && (family === "systemMedium" || isLarge)
-
+  // 2. 依尺寸與參數只抓畫面會用到的資料
+  const hasRace = !!state.race && !!state.next
+  const needChampion = !hasRace && seasonOver && (!isAccessory || family === "accessoryRectangular")
+  const needDrivers =
+    needChampion ||
+    (isMedium && cfg.mode !== "teams" && (cfg.mode !== "schedule" || !hasRace)) ||
+    (isLarge && cfg.mode !== "teams")
+  const needTeams = (isMedium && cfg.mode === "teams") || (isLarge && cfg.mode !== "drivers")
+  const needResult = state.showResult && cfg.mode === "auto" && (isMedium || isLarge)
   // 天氣只在大尺寸顯示；比賽週末每小時更新，平常每 3 小時
   const wxInRange = !!state.race && weatherInRange(state.race, now)
   const needWeather = isLarge && wxInRange
+  const standingsTTL = state.weekend || state.showResult ? 30 * MIN : 6 * HOUR
 
   const [drivers, teams, result, weather] = await Promise.all([
-    needDrivers ? loadDriverStandings(standingsTTL).catch(() => null) : Promise.resolve(null),
-    needTeams ? loadTeamStandings(standingsTTL).catch(() => null) : Promise.resolve(null),
+    needDrivers ? loadDriverStandings(standingsTTL).catch(() => null) : null,
+    needTeams ? loadTeamStandings(standingsTTL).catch(() => null) : null,
     needResult
       ? loadLastResult({ season: state.lastRace!.season, round: state.lastRace!.round }).catch(() => null)
-      : Promise.resolve(null),
-    needWeather
-      ? loadWeather(state.race!, state.weekend ? 1 * HOUR : 3 * HOUR).catch(() => null)
-      : Promise.resolve(null),
+      : null,
+    needWeather ? loadWeather(state.race!, state.weekend ? 1 * HOUR : 3 * HOUR).catch(() => null) : null,
   ])
-
-  for (const l of [drivers, teams, result, weather]) {
-    if (l) {
-      stale = stale || l.stale
-      fetchedTimes.push(l.fetchedAt)
-    }
-  }
+  for (const l of [drivers, teams, result, weather]) used(l)
 
   let raceResult: RaceResult | null = null
   const lr = result?.data
@@ -130,7 +136,9 @@ async function buildData(family: string): Promise<{ data: WidgetData; reload: Da
     stale,
     updatedAt: fetchedTimes.length ? Math.min(...fetchedTimes) : now,
     nextSeasonYear,
-    error: !state.race && !drivers,
+    seasonOver,
+    // 只要還有任何一種資料能顯示，就不蓋成錯誤畫面
+    error: !state.race && !seasonOver && !drivers && !teams && !raceResult,
   }
 
   const reload = data.error ? new Date(now + 15 * MIN) : nextReloadDate(state, now, awaitingResult)
