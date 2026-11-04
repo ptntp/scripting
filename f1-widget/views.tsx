@@ -229,20 +229,29 @@ function RowList({
   font = 12,
   fill = false,
   spacing = 3,
+  slots = 0,
 }: {
   data: WidgetData
   items: RowItem[]
   font?: number
   fill?: boolean
   spacing?: number
+  /** fill 時固定分成幾格：列數不足補空白格，讓並排的兩欄列高相同、逐列對齊（例如 11 隊分成 6＋5） */
+  slots?: number
 }) {
   if (!items.length) {
     return <Text font={11} foregroundStyle="secondaryLabel">{t(data.cfg.lang).noStandings}</Text>
   }
+  const blanks = fill ? Math.max(0, slots - items.length) : 0
   return (
     <VStack alignment="leading" spacing={fill ? 0 : spacing} frame={fill ? FILL : undefined}>
       {items.map(item => (
         <Row item={item} font={font} fill={fill} />
+      ))}
+      {Array.from({ length: blanks }, () => (
+        <Text font={font} frame={FILL}>
+          {" "}
+        </Text>
       ))}
     </VStack>
   )
@@ -788,8 +797,8 @@ export function LargeView({ data }: { data: WidgetData }) {
         <SectionTitle title={mode === "teams" ? s.teams : s.drivers} font={titleFont} />
         <Columns
           fill
-          left={<RowList data={data} items={items(0)} font={f} fill />}
-          right={<RowList data={data} items={items(half)} font={f} fill />}
+          left={<RowList data={data} items={items(0)} font={f} fill slots={half} />}
+          right={<RowList data={data} items={items(half)} font={f} fill slots={half} />}
         />
       </VStack>
     )
@@ -798,8 +807,8 @@ export function LargeView({ data }: { data: WidgetData }) {
       <Columns
         fill
         // 車手欄顯示姓氏：三字代碼在 168pt 欄寬裡會留下約 97pt 空白，和車隊欄不平衡
-        left={[<SectionTitle title={s.drivers} font={titleFont} />, <RowList data={data} items={driverItems(data, 0, rows, { full: true })} font={font} fill />]}
-        right={[<SectionTitle title={s.teams} font={titleFont} />, <RowList data={data} items={teamItems(data, 0, rows)} font={font} fill />]}
+        left={[<SectionTitle title={s.drivers} font={titleFont} />, <RowList data={data} items={driverItems(data, 0, rows, { full: true })} font={font} fill slots={rows} />]}
+        right={[<SectionTitle title={s.teams} font={titleFont} />, <RowList data={data} items={teamItems(data, 0, rows)} font={font} fill slots={rows} />]}
       />
     )
   }
