@@ -674,14 +674,15 @@ function WeatherRow({ data }: { data: WidgetData }) {
       </HStack>
     )
   }
+  // 各天氣圖示高度不同（雲 11.5pt、雨／太陽約 16pt），第一行固定高度並靠上對齊，讓氣溫列各欄對齊
   return (
-    <HStack spacing={5}>
+    <HStack alignment="top" spacing={5}>
       {race.sessions.map(se => {
         const wx = w.sessions.find(x => x.key === se.key)
         const symbol = wx ? weatherSymbol(wx.code, wx.isDay) : ""
         return (
           <VStack alignment="leading" spacing={1} padding={{ leading: 5 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-            <HStack spacing={4}>
+            <HStack spacing={4} frame={{ height: 17 }}>
               <Text font={9} fontWeight="semibold" foregroundStyle="secondaryLabel" lineLimit={1} minScaleFactor={0.7}>
                 {sessionLabel(se.key, data.cfg.lang, true)}
               </Text>
@@ -755,14 +756,16 @@ export function LargeView({ data }: { data: WidgetData }) {
   const mode = data.cfg.mode
   // 積分榜 10 名；賽後上半部顯示前十名結果，積分榜改 5 名
   const rows = data.result ? 5 : 10
-  const font = 11
+  // 列字級與區塊標題不小於中尺寸（中尺寸列字 12）
+  const font = 12
+  const titleFont = 12
 
   // 上半部：正賽結果（自動模式、賽後 30 小時內）或比賽週末各節次
   let top: VirtualNode | null = null
   if (data.result) {
     top = (
       <VStack alignment="leading" spacing={4}>
-        <SectionTitle title={resultTitle(data)} />
+        <SectionTitle title={resultTitle(data)} font={titleFont} />
         <Columns
           left={<RowList data={data} items={resultItems(data, 0, 5)} font={font} spacing={2} />}
           right={<RowList data={data} items={resultItems(data, 5, 5)} font={font} spacing={2} />}
@@ -782,7 +785,7 @@ export function LargeView({ data }: { data: WidgetData }) {
     const f = mode === "teams" ? font + 1 : font
     bottom = (
       <VStack alignment="leading" spacing={4} frame={FILL}>
-        <SectionTitle title={mode === "teams" ? s.teams : s.drivers} />
+        <SectionTitle title={mode === "teams" ? s.teams : s.drivers} font={titleFont} />
         <Columns
           fill
           left={<RowList data={data} items={items(0)} font={f} fill />}
@@ -794,8 +797,9 @@ export function LargeView({ data }: { data: WidgetData }) {
     bottom = (
       <Columns
         fill
-        left={[<SectionTitle title={s.drivers} />, <RowList data={data} items={driverItems(data, 0, rows)} font={font} fill />]}
-        right={[<SectionTitle title={s.teams} />, <RowList data={data} items={teamItems(data, 0, rows)} font={font} fill />]}
+        // 車手欄顯示姓氏：三字代碼在 168pt 欄寬裡會留下約 97pt 空白，和車隊欄不平衡
+        left={[<SectionTitle title={s.drivers} font={titleFont} />, <RowList data={data} items={driverItems(data, 0, rows, { full: true })} font={font} fill />]}
+        right={[<SectionTitle title={s.teams} font={titleFont} />, <RowList data={data} items={teamItems(data, 0, rows)} font={font} fill />]}
       />
     )
   }
