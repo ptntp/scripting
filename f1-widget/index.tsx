@@ -25,7 +25,7 @@ async function main() {
   while (true) {
     const index = await Dialog.actionSheet({
       title: "F1 Widget",
-      message: "資料來源：jolpica-f1（Ergast 相容 API）",
+      message: "資料來源：jolpica-f1、Open-Meteo",
       actions: MENU.map(m => ({ label: m.label, destructive: m.destructive })),
     })
     if (index == null) break

@@ -7,11 +7,12 @@
 
 const BASE = "https://api.jolpi.ca/ergast/f1"
 // jolpica 要求自訂 User-Agent（App 名稱 + 版本）
-const USER_AGENT = "ScriptingF1Widget/1.0 (Scripting iOS)"
+const USER_AGENT = "ScriptingF1Widget/1.2 (Scripting iOS)"
 const CACHE_PREFIX = "f1w:"
 
-const MIN = 60 * 1000
-const HOUR = 60 * MIN
+export const MIN = 60 * 1000
+export const HOUR = 60 * MIN
+const DAY = 24 * HOUR
 
 // 各節次的預估長度（API 只給開始時間）
 const SESSION_MINUTES: Record<SessionKey, number> = {
@@ -25,8 +26,8 @@ const SESSION_MINUTES: Record<SessionKey, number> = {
 }
 
 // 正賽開始後多久內顯示「正賽結果」
-export const RESULT_WINDOW_FROM = 2 * HOUR
-export const RESULT_WINDOW_TO = 30 * HOUR
+const RESULT_WINDOW_FROM = 2 * HOUR
+const RESULT_WINDOW_TO = 30 * HOUR
 
 // ─────────────────────────────────────────────
 // 型別
@@ -39,7 +40,7 @@ export interface Session {
   key: SessionKey
   start: number // epoch ms
   end: number
-  hasTime: boolean
+  hasTime: boolean // false = API 只給日期，時間待定
 }
 
 export interface Race {
@@ -57,11 +58,8 @@ export interface Race {
 }
 
 export interface DriverRow {
-  pos: number
   posText: string
   points: number
-  wins: number
-  driverId: string
   code: string
   number: string // 車號（permanentNumber）
   givenName: string
@@ -71,28 +69,23 @@ export interface DriverRow {
 }
 
 export interface TeamRow {
-  pos: number
   posText: string
   points: number
-  wins: number
   teamId: string
   teamName: string
 }
 
 export interface Standings<T> {
   season: number
-  round: number
   rows: T[]
 }
 
 export interface ResultRow {
-  pos: number
   posText: string
   code: string
   familyName: string
   teamId: string
   teamName: string
-  points: number
   status: string
   time: string | null
 }
@@ -269,11 +262,8 @@ export function loadDriverStandings(ttlMs: number): Promise<Loaded<Standings<Dri
     const rows: DriverRow[] = (list?.DriverStandings ?? []).map((d: any, i: number) => {
       const team = lastConstructor(d.Constructors)
       return {
-        pos: Number(d.position ?? i + 1),
         posText: String(d.positionText ?? d.position ?? i + 1),
         points: Number(d.points ?? 0),
-        wins: Number(d.wins ?? 0),
-        driverId: String(d.Driver?.driverId ?? ""),
         code: String(d.Driver?.code ?? ""),
         number: String(d.Driver?.permanentNumber ?? ""),
         givenName: String(d.Driver?.givenName ?? ""),
@@ -282,11 +272,7 @@ export function loadDriverStandings(ttlMs: number): Promise<Loaded<Standings<Dri
         teamName: team.name,
       }
     })
-    return {
-      season: Number(list?.season ?? mr.StandingsTable?.season ?? 0),
-      round: Number(list?.round ?? 0),
-      rows,
-    }
+    return { season: Number(list?.season ?? mr.StandingsTable?.season ?? 0), rows }
   })
 }
 
@@ -295,18 +281,12 @@ export function loadTeamStandings(ttlMs: number): Promise<Loaded<Standings<TeamR
     const mr = await getMRData("current/constructorstandings.json?limit=30")
     const list = mr.StandingsTable?.StandingsLists?.[0]
     const rows: TeamRow[] = (list?.ConstructorStandings ?? []).map((c: any, i: number) => ({
-      pos: Number(c.position ?? i + 1),
       posText: String(c.positionText ?? c.position ?? i + 1),
       points: Number(c.points ?? 0),
-      wins: Number(c.wins ?? 0),
       teamId: String(c.Constructor?.constructorId ?? ""),
       teamName: String(c.Constructor?.name ?? ""),
     }))
-    return {
-      season: Number(list?.season ?? mr.StandingsTable?.season ?? 0),
-      round: Number(list?.round ?? 0),
-      rows,
-    }
+    return { season: Number(list?.season ?? mr.StandingsTable?.season ?? 0), rows }
   })
 }
 
@@ -321,13 +301,11 @@ export function loadLastResult(expected: { season: number; round: number }): Pro
       const race = mr.RaceTable?.Races?.[0]
       if (!race) return null
       const rows: ResultRow[] = (race.Results ?? []).map((r: any, i: number) => ({
-        pos: Number(r.position ?? i + 1),
         posText: String(r.positionText ?? r.position ?? i + 1),
         code: String(r.Driver?.code ?? ""),
         familyName: String(r.Driver?.familyName ?? ""),
         teamId: String(r.Constructor?.constructorId ?? ""),
         teamName: String(r.Constructor?.name ?? ""),
-        points: Number(r.points ?? 0),
         status: String(r.status ?? ""),
         time: r.Time?.time ? String(r.Time.time) : null,
       }))
@@ -347,9 +325,8 @@ export function loadLastResult(expected: { season: number; round: number }): Pro
 // ─────────────────────────────────────────────
 
 const WEATHER_BASE = "https://api.open-meteo.com/v1/forecast"
-const DAY = 24 * HOUR
 // Open-Meteo 最多提供 16 天預報，保守抓 15 天
-export const WEATHER_HORIZON = 15 * DAY
+const WEATHER_HORIZON = 15 * DAY
 
 export interface SessionWeather {
   key: SessionKey
@@ -393,6 +370,7 @@ export function loadWeather(race: Race, ttlMs: number): Promise<Loaded<Weather>>
 
     const sessions: SessionWeather[] = []
     for (const s of race.sessions) {
+      if (!s.hasTime) continue // 時間待定的節次查不準，不顯示天氣
       const mid = (s.start + s.end) / 2 / 1000
       let best = -1
       let bestDiff = Infinity
@@ -501,7 +479,6 @@ const STRINGS = {
     teams: "車隊積分",
     schedule: "比賽週末",
     result: "正賽結果",
-    round: (n: number) => `第 ${n} 站`,
     roundShort: (n: number) => `R${n}`,
     seasonOver: "賽季已結束",
     champion: "年度冠軍",
@@ -511,15 +488,13 @@ const STRINGS = {
     updated: "更新",
     today: "今天",
     tomorrow: "明天",
-    done: "已結束",
     pts: "分",
-    days: (n: number) => `${n} 天`,
-    hours: (n: number) => `${n} 小時`,
     daysUnit: "天",
     noStandings: "賽季尚未開始",
     nextSeason: (y: number) => `${y} 賽季`,
-    lightsOut: "熄燈起跑",
     weatherSoon: "天氣預報將於賽前 15 天提供",
+    tbc: "待定",
+    inDays: (n: number) => (n <= 0 ? "今天" : `${n} 天後`),
     week: ["週日", "週一", "週二", "週三", "週四", "週五", "週六"],
   },
   en: {
@@ -529,7 +504,6 @@ const STRINGS = {
     teams: "Constructors",
     schedule: "Race weekend",
     result: "Race result",
-    round: (n: number) => `Round ${n}`,
     roundShort: (n: number) => `R${n}`,
     seasonOver: "Season finished",
     champion: "Champion",
@@ -539,15 +513,13 @@ const STRINGS = {
     updated: "Updated",
     today: "Today",
     tomorrow: "Tmrw",
-    done: "Done",
     pts: "pts",
-    days: (n: number) => `${n} ${n === 1 ? "day" : "days"}`,
-    hours: (n: number) => `${n} h`,
     daysUnit: "days",
     noStandings: "Season not started",
     nextSeason: (y: number) => `${y} season`,
-    lightsOut: "Lights out",
     weatherSoon: "Forecast available 15 days before the race",
+    tbc: "TBC",
+    inDays: (n: number) => (n <= 0 ? "Today" : `in ${n} ${n === 1 ? "day" : "days"}`),
     week: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   },
 }
@@ -586,7 +558,7 @@ export function fmtTime(ms: number): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
 }
 
-export function fmtDate(ms: number): string {
+function fmtDate(ms: number): string {
   const d = new Date(ms)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
@@ -597,7 +569,7 @@ export function dayDiff(ms: number, now: number): number {
   a.setHours(0, 0, 0, 0)
   const b = new Date(ms)
   b.setHours(0, 0, 0, 0)
-  return Math.round((b.getTime() - a.getTime()) / (24 * HOUR))
+  return Math.round((b.getTime() - a.getTime()) / DAY)
 }
 
 /** 「今天」「明天」或「週六」 */
@@ -608,12 +580,18 @@ export function fmtDay(ms: number, lang: Lang, now: number): string {
   return t(lang).week[new Date(ms).getDay()]
 }
 
+/** 節次開始時間「02:00」；API 只給日期時顯示「待定」 */
+export function fmtSessionTime(se: Session, lang: Lang): string {
+  return se.hasTime ? fmtTime(se.start) : t(lang).tbc
+}
+
 /** 「週六 11/8 02:00」，今天/明天時省略日期 */
-export function fmtWhen(ms: number, lang: Lang, now: number, withDate = true): string {
-  const diff = dayDiff(ms, now)
-  const day = fmtDay(ms, lang, now)
-  if (diff === 0 || diff === 1 || !withDate) return `${day} ${fmtTime(ms)}`
-  return `${day} ${fmtDate(ms)} ${fmtTime(ms)}`
+export function fmtWhen(se: Session, lang: Lang, now: number, withDate = true): string {
+  const diff = dayDiff(se.start, now)
+  const day = fmtDay(se.start, lang, now)
+  const time = fmtSessionTime(se, lang)
+  if (diff === 0 || diff === 1 || !withDate) return `${day} ${time}`
+  return `${day} ${fmtDate(se.start)} ${time}`
 }
 
 export function fmtRange(race: Race): string {
@@ -790,20 +768,14 @@ export function parseConfig(raw: string | null | undefined): Config {
       const obj = JSON.parse(text)
       tokens = [obj.mode, obj.lang].filter(Boolean).map(String)
     } catch {
-      tokens = []
-    }
-  } else if (text.startsWith('"')) {
-    try {
-      tokens = String(JSON.parse(text)).split(/[\s,;，、]+/)
-    } catch {
-      tokens = []
+      // 格式錯誤就用預設值
     }
   } else {
-    tokens = text.split(/[\s,;，、]+/)
+    tokens = text.replace(/^"|"$/g, "").split(/[\s,;，、]+/)
   }
 
-  for (const raw of tokens) {
-    const tok = raw.toLowerCase()
+  for (const word of tokens) {
+    const tok = word.toLowerCase()
     if (["drivers", "driver", "車手"].includes(tok)) cfg.mode = "drivers"
     else if (["teams", "team", "constructors", "車隊"].includes(tok)) cfg.mode = "teams"
     else if (["schedule", "賽程"].includes(tok)) cfg.mode = "schedule"

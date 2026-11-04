@@ -2,10 +2,9 @@
 import { Widget } from "scripting"
 
 import {
-  DriverRow,
+  HOUR,
+  MIN,
   RaceResult,
-  Standings,
-  TeamRow,
   WeekendState,
   computeState,
   loadDriverStandings,
@@ -30,9 +29,6 @@ import {
   WidgetData,
 } from "./views"
 
-const MIN = 60 * 1000
-const HOUR = 60 * MIN
-
 // 拿不到 Widget.displaySize 時的備用尺寸（iPhone 6.1 吋）
 const FALLBACK_SIZE: Record<string, { width: number; height: number }> = {
   systemSmall: { width: 158, height: 158 },
@@ -50,16 +46,14 @@ function widgetSize(family: string): { width: number; height: number } {
   return FALLBACK_SIZE[family] ?? FALLBACK_SIZE.systemMedium
 }
 
-async function buildData(): Promise<{ data: WidgetData; reload: Date }> {
+async function buildData(family: string): Promise<{ data: WidgetData; reload: Date }> {
   const cfg = parseConfig(Widget.parameter)
   const now = Date.now()
-  const family = String(Widget.family)
   const isAccessory = family.startsWith("accessory")
   const isLarge = family.startsWith("systemLarge") || family.startsWith("systemExtraLarge")
 
   let stale = false
   const fetchedTimes: number[] = []
-  let error: string | null = null
   let state: WeekendState = computeState([], now)
   let nextSeasonYear: number | null = null
 
@@ -84,25 +78,22 @@ async function buildData(): Promise<{ data: WidgetData; reload: Date }> {
         // 下一季賽程尚未公布
       }
     }
-  } catch (e) {
-    error = String(e)
+  } catch {
+    // 賽程抓不到且沒有快取：之後若連積分也沒有就顯示錯誤畫面
   }
 
   // 2. 積分榜與正賽結果（依尺寸只抓需要的）
   const standingsTTL = state.weekend || state.showResult ? 30 * MIN : 6 * HOUR
   const needDrivers = !isAccessory || !state.race
   const needTeams = isLarge || (family === "systemMedium" && cfg.mode === "teams")
-  const needResult =
-    state.showResult && !!state.lastRace && cfg.mode === "auto" && (family === "systemMedium" || isLarge)
+  const needResult = state.showResult && cfg.mode === "auto" && (family === "systemMedium" || isLarge)
 
   // 天氣只在大尺寸顯示；比賽週末每小時更新，平常每 3 小時
   const wxInRange = !!state.race && weatherInRange(state.race, now)
   const needWeather = isLarge && wxInRange
 
   const [drivers, teams, result, weather] = await Promise.all([
-    needDrivers
-      ? loadDriverStandings(standingsTTL).catch(() => null)
-      : Promise.resolve(null),
+    needDrivers ? loadDriverStandings(standingsTTL).catch(() => null) : Promise.resolve(null),
     needTeams ? loadTeamStandings(standingsTTL).catch(() => null) : Promise.resolve(null),
     needResult
       ? loadLastResult({ season: state.lastRace!.season, round: state.lastRace!.round }).catch(() => null)
@@ -131,15 +122,15 @@ async function buildData(): Promise<{ data: WidgetData; reload: Date }> {
     now,
     size: widgetSize(family),
     state,
-    drivers: (drivers?.data as Standings<DriverRow> | undefined) ?? null,
-    teams: (teams?.data as Standings<TeamRow> | undefined) ?? null,
+    drivers: drivers?.data ?? null,
+    teams: teams?.data ?? null,
     result: raceResult,
     weather: weather?.data ?? null,
     weatherInRange: wxInRange,
     stale,
     updatedAt: fetchedTimes.length ? Math.min(...fetchedTimes) : now,
     nextSeasonYear,
-    error: state.race || drivers ? null : error ?? "no data",
+    error: !state.race && !drivers,
   }
 
   const reload = data.error ? new Date(now + 15 * MIN) : nextReloadDate(state, now, awaitingResult)
@@ -174,8 +165,8 @@ function viewFor(family: string, data: WidgetData) {
 }
 
 async function run() {
-  const { data, reload } = await buildData()
   const family = String(Widget.family)
+  const { data, reload } = await buildData(family)
   Widget.present(viewFor(family, data), {
     reloadPolicy: { policy: "after", date: reload },
     relevance: { score: data.state.live ? 1 : data.state.weekend ? 0.7 : 0.1 },
