@@ -778,9 +778,11 @@ export function teamColor(id: string, name = ""): TeamColor {
 }
 
 // 窄欄用的更短名稱（參考 FastF1 constants.json 的 short_name）
+// Mercedes 在中尺寸右欄（隊名最多約 57.5pt）需要約 61pt，會被縮小並貼近積分，所以也用短名
 const TEAM_NARROW: Record<string, string> = {
   "Racing Bulls": "RB",
   "Aston Martin": "Aston",
+  Mercedes: "Merc",
 }
 
 export function teamShort(id: string, name: string, narrow = false): string {
