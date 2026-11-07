@@ -9,7 +9,7 @@ export const WIDGET_SNAPSHOT_KEY = "ip-detection.widget-snapshot.v1"
 
 export type WidgetRiskSource = "proxycheck" | "IPPure" | "heuristic" | null
 
-/** 页面当前显示的数据快照；小组件优先读它，避免自己另查一份出口 IP。 */
+/** 頁面目前顯示的資料快照；小工具優先讀它，避免自己另查一份出口 IP。 */
 export interface WidgetSnapshot {
   version: 1
   savedAt: number
@@ -81,11 +81,11 @@ export function buildWidgetSnapshot(input: {
     accessType: accessTypeLabel(info, reputation, pure),
     vpnStatus: flags.length
       ? `${flags[0].short}${flags.length > 1 ? ` +${flags.length - 1}` : ""}`
-      : known ? "未标记" : "未知",
+      : known ? "未標記" : "未知",
   }
 }
 
-/** 兼容旧版本或被外部改坏的值；任何关键字段异常都整体拒绝。 */
+/** 相容舊版本或被外部改壞的值；任何關鍵欄位異常都整體拒絕。 */
 export function parseWidgetSnapshot(raw: unknown): WidgetSnapshot | null {
   if (!raw || typeof raw !== "object") return null
   const data = raw as Record<string, unknown>

@@ -4,7 +4,7 @@ export const RefreshIPIntent = AppIntentManager.register({
     name: "RefreshIPIntent",
     protocol: AppIntentProtocol.AppIntent,
     perform: async () => {
-        console.log("执行刷新意图：RefreshIPIntent");
+        console.log("執行重新整理意圖：RefreshIPIntent");
         Widget.reloadAll();
     }
 });

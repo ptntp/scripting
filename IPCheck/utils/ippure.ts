@@ -4,7 +4,7 @@ import { countryName, sameIP, withTimeout } from "./geo"
 import type { ExitObservation, GeoRow } from "./geo"
 
 export interface IPPureReport {
-  source: "网页" | "API" | null
+  source: "網頁" | "API" | null
   asn: string | null
   organization: string | null
   domain: string | null
@@ -29,8 +29,8 @@ export function ipPureURL(ip: string): string {
   return `https://ippure.com/?ip=${encodeURIComponent(ip)}`
 }
 
-// 使用网站自己的查询动作；资源名从当前页面发现，不固定带 hash 的脚本文件名。
-// 仅返回查询数据，不读取浏览器指纹、Cookie 或身份信息。
+// 使用網站自己的查詢動作；資源名從目前頁面發現，不固定帶 hash 的腳本檔名。
+// 僅回傳查詢資料，不讀取瀏覽器指紋、Cookie 或身份資訊。
 const PAGE_QUERY = `
   const started = Date.now();
   let store = null;
@@ -72,18 +72,18 @@ async function pageData(ip: string, isCurrent: () => boolean): Promise<ObjectDat
     web = new WebViewController({ ephemeral: true, settings: { inactiveSchedulingPolicy: "none" } })
     const controller = web
     cancellation = setInterval(() => {
-      try { if (!isCurrent() && !controller.isDisposed) controller.dispose() } catch { /* 旧请求已释放 */ }
+      try { if (!isCurrent() && !controller.isDisposed) controller.dispose() } catch { /* 舊請求已釋放 */ }
     }, 250)
     const loaded = await withTimeout(web.loadRequest({ url: ipPureURL(ip), timeoutInterval: 7 }), 7500)
     if (!loaded || !isCurrent()) return null
     const raw = await withTimeout(web.callAsyncJavaScript<string | null>(PAGE_QUERY, { target: ip }), 11000)
     return raw ? JSON.parse(raw) : null
   } catch (error) {
-    console.log("[IP检测] IPPure 网页暂不可用", String(error))
+    console.log("[IP檢測] IPPure 網頁暫不可用", String(error))
     return null
   } finally {
     if (cancellation !== undefined) clearInterval(cancellation)
-    try { if (web && !web.isDisposed) web.dispose() } catch { /* 取消轮询可能已释放 */ }
+    try { if (web && !web.isDisposed) web.dispose() } catch { /* 取消輪詢可能已釋放 */ }
   }
 }
 
@@ -107,7 +107,7 @@ function locationRow(source: string, ip: string, data: ObjectData | null | undef
   return location ? { source, ip, location, status: "ok" } : null
 }
 
-/** 无法取得的数据保留 null；API 只代表自身出口，必须与查询地址相同才能补分。 */
+/** 無法取得的資料保留 null；API 只代表自身出口，必須與查詢位址相同才能補分。 */
 export function parseIPPure(ip: string, page: ObjectData | null, official: ObjectData | null): IPPureReport {
   const result: IPPureReport = {
     source: null, asn: null, organization: null, domain: null, range: null,
@@ -119,7 +119,7 @@ export function parseIPPure(ip: string, page: ObjectData | null, official: Objec
   if (pageMatches) {
     const asn = basic.asn || {}
     const range = asn.network?.range
-    result.source = "网页"
+    result.source = "網頁"
     result.asn = typeof asn.number === "number" ? `AS${asn.number}` : null
     result.organization = text(asn.organization)
     result.domain = text(asn.domain)
@@ -157,8 +157,8 @@ export function parseIPPure(ip: string, page: ObjectData | null, official: Objec
       result.organization ??= text(official?.asOrganization)
     }
   }
-  if (!result.source) result.note = "IPPure 暂未返回此 IP 的数据，可打开原网页核对。"
-  else if (result.risk === null) result.note = ip.includes(":") ? "IPPure 暂未提供此 IPv6 的风险分。" : "IPPure 本次未返回风险分。"
+  if (!result.source) result.note = "IPPure 暫未回傳此 IP 的資料，可開啟原網頁核對。"
+  else if (result.risk === null) result.note = ip.includes(":") ? "IPPure 暫未提供此 IPv6 的風險分。" : "IPPure 本次未回傳風險分。"
   return result
 }
 

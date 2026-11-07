@@ -23,7 +23,7 @@ const SPECTRUM = gradient("linear", {
   colors: [ACCENT.teal, ACCENT.blue, ACCENT.violet], startPoint: "leading", endPoint: "trailing",
 })
 
-// 动画失败时仍提交状态；定时器只负责启动原生动画，不做逐帧刷新。
+// 動畫失敗時仍提交狀態；定時器只負責啟動原生動畫，不做逐幀重新整理。
 export function animate(update: () => void, animation = Animation.smooth({ duration: 0.35 })) {
   try { void withAnimation(animation, update).catch(() => {}) }
   catch { update() }
@@ -34,14 +34,14 @@ function useEntrance(delay = 0) {
   useEffect(() => {
     const timer = setTimeout(() => {
       try { animate(() => setVisible(true), Animation.easeOut(0.48)) }
-      catch (error) { console.log("[IP检测] 入场动画", String(error)) }
+      catch (error) { console.log("[IP檢測] 入場動畫", String(error)) }
     }, 24 + delay)
     return () => clearTimeout(timer)
   }, [])
   return visible
 }
 
-/** 连续面板中的色带分区，无独立圆角、阴影或外边距。 */
+/** 連續面板中的色帶分區，無獨立圓角、陰影或外邊距。 */
 export function Band({ title, icon, hint, accessory, shaded = false, order = 0, children }: {
   title?: string; icon?: string; hint?: string; accessory?: VirtualNode | null; shaded?: boolean; order?: number
   children?: VirtualNode | (VirtualNode | VirtualNode[] | null | undefined | false)[]
@@ -88,23 +88,23 @@ export function Tag({ text, color = ACCENT.blue }: { text: string; color?: Color
     background={{ style: color, shape: { type: "rect", cornerRadius: 6 } }}>{text}</Text>
 }
 
-/** 仅在阳性命中时挂载：整行弹入，标签外圈循环扫出一道光环。 */
+/** 僅在陽性命中時掛載：整行彈入，標籤外圈迴圈掃出一道光環。 */
 export function FlagRow({ label, delay = 0, color = ACCENT.orange }: {
   label: string; delay?: number; color?: Color
 }) {
   const [shown, setShown] = useState(false)
   useEffect(() => {
     const timer = setTimeout(() => {
-      // 状态始终提交；位移/缩放/光环由各节点显式 animation 插值。
+      // 狀態始終提交；位移/縮放/光環由各節點顯式 animation 插值。
       try { setShown(true) }
-      catch (error) { console.log("[IP检测] 风险标记动画", String(error)) }
+      catch (error) { console.log("[IP檢測] 風險標記動畫", String(error)) }
     }, 24 + delay)
     return () => clearTimeout(timer)
   }, [])
   return <HStack spacing={10} alignment="top" padding={{ vertical: 6 }}
     frame={{ maxWidth: "infinity", alignment: "leading" }}
     opacity={shown ? 1 : 0} offset={{ x: shown ? 0 : -12, y: 0 }} scaleEffect={shown ? 1 : 0.96}
-    accessibilityLabel={`${label} 已标记`}>
+    accessibilityLabel={`${label} 已標記`}>
     <Text font={13} foregroundStyle="secondaryLabel"
       frame={{ width: LABEL_WIDTH, alignment: "leading" }}>{label}</Text>
     <Text font={11} fontWeight="semibold" foregroundStyle="#FFFFFF"
@@ -116,7 +116,7 @@ export function FlagRow({ label, delay = 0, color = ACCENT.orange }: {
         animation={{ animation: Animation.easeOut(1.05).repeatForever(false), value: shown }} />}
       opacity={shown ? 1 : 0} scaleEffect={shown ? 1 : 0.7}
       animation={{ animation: Animation.spring({ duration: 0.46, bounce: 0.24 }), value: shown }}>
-      已标记
+      已標記
     </Text>
   </HStack>
 }
@@ -173,13 +173,13 @@ export function riskColor(value: number): Color {
     : value >= 25 ? "#88B82C" : value >= 15 ? ACCENT.green : "#268C62"
 }
 export function riskLabel(value: number): string {
-  return value >= 70 ? "高风险" : value >= 50 ? "中度风险" : value >= 25 ? "轻度风险" : "低风险"
+  return value >= 70 ? "高風險" : value >= 50 ? "中度風險" : value >= 25 ? "輕度風險" : "低風險"
 }
 
 const RISK_MOVEMENT = Animation.easeOut(1.8)
 const SCROLL_VISIBILITY_SUPPORTED = parseInt(Device.systemVersion, 10) >= 18
 
-/** 气泡、指针、刻度均按实际百分比定位，0 和 100 时也不越界。 */
+/** 氣泡、指標、刻度均按實際百分比定位，0 和 100 時也不越界。 */
 export function RiskScale({ value }: { value: number }) {
   const score = Math.max(0, Math.min(100, value))
   const [position, setPosition] = useState(0)
@@ -187,17 +187,17 @@ export function RiskScale({ value }: { value: number }) {
   const entered = useRef(!SCROLL_VISIBILITY_SUPPORTED)
   useEffect(() => {
     if (!visible) return
-    // 进入屏幕后先呈现起点；GeometryReader 的位移由显式 animation 插值。
+    // 進入螢幕後先呈現起點；GeometryReader 的位移由顯式 animation 插值。
     const timer = setTimeout(() => {
       try { animate(() => setPosition(score), RISK_MOVEMENT) }
-      catch (error) { console.log("[IP检测] 风险动画", String(error)) }
+      catch (error) { console.log("[IP檢測] 風險動畫", String(error)) }
     }, 120)
     return () => clearTimeout(timer)
   }, [score, visible])
   const marks = [0, 15, 25, 40, 50, 70, 100]
   const colors: Color[] = ["#268C62", "#28B982", "#91CA2D", "#E9BE2B", "#F08335", "#E64F67"]
   const tint = riskColor(score)
-  // 三行各自占据真实高度；固定高度与弹性宽度分别约束，避免刻度溢出到下方 Note。
+  // 三行各自佔據真實高度；固定高度與彈性寬度分別約束，避免刻度溢位到下方 Note。
   return <VStack spacing={5}
     modifiers={modifiers().frame({ maxWidth: "infinity", alignment: "leading" }).padding({ top: 7, bottom: 8 })}
     onScrollVisibilityChange={SCROLL_VISIBILITY_SUPPORTED ? {
@@ -209,7 +209,7 @@ export function RiskScale({ value }: { value: number }) {
         }
       },
     } : undefined}
-    accessibilityLabel={`风险分 ${Math.round(score)}，${riskLabel(score)}`}>
+    accessibilityLabel={`風險分 ${Math.round(score)}，${riskLabel(score)}`}>
     <HStack spacing={0} modifiers={modifiers().frame({ height: 36, alignment: "topLeading" }).frame({ maxWidth: "infinity", alignment: "leading" })}>
       <GeometryReader>{({ size }) => {
         const width = Math.max(1, size.width)

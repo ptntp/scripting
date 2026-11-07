@@ -5,7 +5,7 @@ async function run() {
   try {
     await Navigation.present(<IPPage />)
   } catch (error) {
-    console.error("[IP检测] 页面呈现失败", error)
+    console.error("[IP檢測] 頁面呈現失敗", error)
   } finally {
     Script.exit()
   }

@@ -45,7 +45,7 @@ export async function takeIPMapSnapshot(options: {
   const width = Math.max(64, Math.round(options.width))
   const height = Math.max(48, Math.round(options.height))
   const span = regionSpanForFamily(options.family)
-  // 定位坐标始终作为地图快照的中心点；地图视图本身再由组件布局移动到 (3/4, 1/2)。
+  // 定位座標始終作為地圖快照的中心點；地圖檢視本身再由元件佈局移動到 (3/4, 1/2)。
   const center = {
     latitude: options.lat,
     longitude: options.lon,
@@ -72,13 +72,13 @@ export async function takeIPMapSnapshot(options: {
       })
       if (snap?.image) return snap
     } catch (primaryError) {
-      console.error("[IP检测] 简洁地图快照失败，尝试默认样式", primaryError)
+      console.error("[IP檢測] 簡潔地圖快照失敗，嘗試預設樣式", primaryError)
     }
 
     const fallback = await MapSnapshotter.take(common)
     return fallback?.image ? fallback : null
   } catch (error) {
-    console.error("[IP检测] 地图快照失败", error)
+    console.error("[IP檢測] 地圖快照失敗", error)
     return null
   }
 }

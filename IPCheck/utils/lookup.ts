@@ -53,7 +53,7 @@ type IPWhoData = {
   timezone?: { id?: string; offset?: number }
 }
 
-/** ipwho.is 数据 → IPInfo 结构（主源失败时作为备选） */
+/** ipwho.is 資料 → IPInfo 結構（主源失敗時作為備選） */
 function mapIPWhoToIPInfo(data: IPWhoData, ip: string): IPInfo {
   const connection = data.connection && typeof data.connection === "object" ? data.connection : {}
   const asn = typeof connection.asn === "number" && Number.isSafeInteger(connection.asn) && connection.asn > 0
@@ -89,9 +89,9 @@ async function queryIPWho(ip: string): Promise<IPWhoData | null> {
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       return await response.json() as IPWhoData
-    }, SECONDARY_TIMEOUT_MS, "ipwho.is 请求超时")
+    }, SECONDARY_TIMEOUT_MS, "ipwho.is 請求逾時")
   } catch (error) {
-    console.log("[IP检测] ipwho.is 补充查询失败", error)
+    console.log("[IP檢測] ipwho.is 補充查詢失敗", error)
     return null
   }
 }
@@ -113,7 +113,7 @@ function detectionDate(value: unknown): string | null {
   return text && Number.isFinite(Date.parse(text)) ? text : null
 }
 
-/** v3 的 warning 也是成功查询；缺失保留 null，真实 false 和 0 原样保留。 */
+/** v3 的 warning 也是成功查詢；缺失保留 null，真實 false 和 0 原樣保留。 */
 export function parseProxyCheck(data: Record<string, any>, ip: string): LookupResult["reputation"] {
   const key = Object.keys(data).find(key => sameIP(key, ip))
   const success = data.status === "ok" || data.status === "warning"
@@ -121,7 +121,7 @@ export function parseProxyCheck(data: Record<string, any>, ip: string): LookupRe
   const detections = match?.detections
   if (!detections) return null
 
-  // 风险分只接受 proxycheck 自己给出的真实数值，置信度不能拿来充风险。
+  // 風險分只接受 proxycheck 自己給出的真實數值，置信度不能拿來充風險。
   const risk = percentage(detections.risk)
 
   return {
@@ -149,16 +149,16 @@ export function parseProxyCheck(data: Record<string, any>, ip: string): LookupRe
 async function queryReputation(ip: string): Promise<LookupResult["reputation"]> {
   try {
     const data = await withTimeout(async () => {
-      // v3 默认返回完整检测结果，不再使用 v2 的 asn/risk/vpn 参数。
+      // v3 預設回傳完整檢測結果，不再使用 v2 的 asn/risk/vpn 參數。
       const response = await fetch(`https://proxycheck.io/v3/${encodeURIComponent(ip)}`, {
         timeout: Math.ceil(REPUTATION_TIMEOUT_MS / 1000),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       return await response.json() as Record<string, any>
-    }, REPUTATION_TIMEOUT_MS, "proxycheck 请求超时")
+    }, REPUTATION_TIMEOUT_MS, "proxycheck 請求逾時")
     return parseProxyCheck(data, ip)
   } catch (error) {
-    console.log("[IP检测] proxycheck 查询失败", error)
+    console.log("[IP檢測] proxycheck 查詢失敗", error)
     return null
   }
 }
@@ -169,12 +169,12 @@ export function assembleLookupResult(
 ): LookupResult {
   const whoMatches = whoData?.success === true && typeof whoData.ip === "string" && sameIP(whoData.ip, ip)
 
-  // 主源可用且确实是这个地址才采信；否则退到 ipwho.is
+  // 主源可用且確實是這個位址才採信；否則退到 ipwho.is
   let info: IPInfo | null = null
   const primaryMatches = primary && sameIP(primary.query, ip)
   if (primary && primaryMatches) info = primary
   else if (whoData && whoMatches) info = mapIPWhoToIPInfo(whoData, ip)
-  else if (!reputation) throw new Error("IP 归属查询失败，稍后重试")
+  else if (!reputation) throw new Error("IP 歸屬查詢失敗，稍後重試")
 
   let connection: LookupResult["connection"] = null
   let alternateLocation: LookupResult["alternateLocation"] = null
@@ -199,12 +199,12 @@ export function assembleLookupResult(
 
 export async function lookupAddress(address: string, withReputation = false): Promise<LookupResult> {
   const ip = address.trim()
-  if (!validIPAddress(ip)) throw new Error("请输入有效的 IPv4 或 IPv6 地址")
+  if (!validIPAddress(ip)) throw new Error("請輸入有效的 IPv4 或 IPv6 位址")
 
   const [primary, whoData, reputation] = await Promise.all([
-    withTimeout(() => fetchIPInfo(ip), PRIMARY_TIMEOUT_MS, "ip-api.com 请求超时")
+    withTimeout(() => fetchIPInfo(ip), PRIMARY_TIMEOUT_MS, "ip-api.com 請求逾時")
       .catch((error) => {
-        console.log("[IP检测] 主源 ip-api.com 查询失败", error)
+        console.log("[IP檢測] 主源 ip-api.com 查詢失敗", error)
         return null
       }),
     queryIPWho(ip),

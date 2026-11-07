@@ -70,7 +70,7 @@ function RevealLetter({ char, color, delay }: { char: string; color: Color; dela
   useEffect(() => {
     const timer = setTimeout(() => {
       try { setVisible(true) }
-      catch (error) { console.log("[IP检测] 标题字母动画", String(error)) }
+      catch (error) { console.log("[IP檢測] 標題字母動畫", String(error)) }
     }, delay)
     return () => clearTimeout(timer)
   }, [])
@@ -89,7 +89,7 @@ function AnimatedTitle() {
   useEffect(() => {
     const timer = setTimeout(() => {
       try { setShown(true) }
-      catch (error) { console.log("[IP检测] 标题入场", String(error)) }
+      catch (error) { console.log("[IP檢測] 標題入場", String(error)) }
     }, 30)
     return () => clearTimeout(timer)
   }, [])
@@ -134,7 +134,7 @@ function LocationMap({ info }: { info: NonNullable<LookupResult["info"]> }) {
     if (copyTimer.current !== null) clearTimeout(copyTimer.current)
     copyTimer.current = setTimeout(() => {
       try { animate(() => setCopied(false)) }
-      catch (error) { console.log("[IP检测] 坐标复制状态", String(error)) }
+      catch (error) { console.log("[IP檢測] 座標複製狀態", String(error)) }
     }, 1500)
   }
 
@@ -144,7 +144,7 @@ function LocationMap({ info }: { info: NonNullable<LookupResult["info"]> }) {
     pressTimer.current = setTimeout(() => {
       pressTimer.current = null
       try { animate(() => setOpeningMap(false), Animation.snappy({ duration: 0.18 })) }
-      catch (error) { console.log("[IP检测] 地图按钮反馈", String(error)) }
+      catch (error) { console.log("[IP檢測] 地圖按鈕反饋", String(error)) }
     }, 230)
     openTimer.current = setTimeout(() => {
       openTimer.current = null
@@ -166,7 +166,7 @@ function LocationMap({ info }: { info: NonNullable<LookupResult["info"]> }) {
       const fallback = await MapSearch.locate({ query: `${info.lat},${info.lon}` })
       if (fallback.length > 0) await fallback[0].openInMaps()
     } catch (error) {
-      console.log("[IP检测] 打开系统地图失败", error)
+      console.log("[IP檢測] 開啟系統地圖失敗", error)
     }
   }
 
@@ -177,9 +177,9 @@ function LocationMap({ info }: { info: NonNullable<LookupResult["info"]> }) {
           {formatIPLocation(info, title)}</Text>
         <Text font={11} fontDesign="monospaced" foregroundStyle={ACCENT.blue}>{coordinate}</Text>
       </VStack>
-      <IconButton icon={copied ? "checkmark" : "doc.on.doc"} label={copied ? "坐标已复制" : "复制坐标"}
+      <IconButton icon={copied ? "checkmark" : "doc.on.doc"} label={copied ? "座標已複製" : "複製座標"}
         action={copyCoordinates} active={copied} />
-      <IconButton icon="arrow.up.right" label="在系统地图中打开" action={openMapsWithFeedback}
+      <IconButton icon="arrow.up.right" label="在系統地圖中開啟" action={openMapsWithFeedback}
         iconSize={18} pressed={openingMap} />
     </HStack>
     <Map
@@ -202,7 +202,7 @@ function LocationMap({ info }: { info: NonNullable<LookupResult["info"]> }) {
       <Marker title={title} coordinate={{ latitude: info.lat, longitude: info.lon }}
         systemImage="network" tint="systemRed" />
     </Map>
-    <Note text="IP 定位通常只到城市；红圈表示大致范围，并非精确街道位置。" />
+    <Note text="IP 定位通常只到城市；紅圈表示大致範圍，並非精確街道位置。" />
   </VStack>
 }
 
@@ -211,7 +211,7 @@ function LocationRow({ row, privacy }: { row: GeoRow; privacy: boolean }) {
     <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity", alignment: "leading" }}>
       <Text font={13} foregroundStyle={row.status === "ok" ? "label" : "secondaryLabel"}
         fixedSize={{ horizontal: false, vertical: true }} contentTransition="opacity">
-        {row.status === "ok" ? row.location : row.note || "暂不可用"}
+        {row.status === "ok" ? row.location : row.note || "暫不可用"}
       </Text>
       {row.status === "ok" && row.note ? <Text font={10} foregroundStyle={ACCENT.orange}
         fixedSize={{ horizontal: false, vertical: true }}>
@@ -229,9 +229,9 @@ export function LocationSection({ result, pure, rows, privacy, expanded, onToggl
   const available = hasCoordinates(info)
   const showingMap = expanded && available
   return <Band title="位置" icon="mappin.and.ellipse"
-    hint={showingMap ? "地图视图" : pure?.locations.length ? "IPPure · 多源对照" : "多源对照"}
+    hint={showingMap ? "地圖檢視" : pure?.locations.length ? "IPPure · 多源對照" : "多源對照"}
     accessory={available ? <IconButton icon={showingMap ? "list.bullet" : "map.fill"}
-      label={showingMap ? "返回位置列表" : "展开地图"} action={onToggle} active={showingMap} /> : null}
+      label={showingMap ? "返回位置列表" : "展開地圖"} action={onToggle} active={showingMap} /> : null}
     shaded order={1}>
     {showingMap && info ? <VStack key="location-map" alignment="leading" spacing={0}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
@@ -240,20 +240,20 @@ export function LocationSection({ result, pure, rows, privacy, expanded, onToggl
     </VStack> : <VStack key="location-list" alignment="leading" spacing={0}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
       transition={Transition.opacity().combined(Transition.offset({ x: 0, y: 8 }))}>
-      {info && !available ? <Note text="归属数据未提供有效经纬度，暂时无法显示地图。" /> : null}
+      {info && !available ? <Note text="歸屬資料未提供有效經緯度，暫時無法顯示地圖。" /> : null}
       {rows.map(row => <LocationRow key={row.source} row={row} privacy={privacy} />)}
-      {info ? <Row label={result?.infoSource || "归属参考"} value={formatIPLocation(info)} /> : null}
+      {info ? <Row label={result?.infoSource || "歸屬參考"} value={formatIPLocation(info)} /> : null}
       {result?.alternateLocation && result.infoSource !== "ipwho.is" ? <Row label="ipwho.is"
         value={formatIPLocation({
           country: clean(result.alternateLocation.country) === "—" ? "" : result.alternateLocation.country,
           countryCode: result.alternateLocation.countryCode || "",
           regionName: result.alternateLocation.region === "—" ? "" : result.alternateLocation.region,
           city: result.alternateLocation.city === "—" ? "" : result.alternateLocation.city,
-        }, "暂不可用")} /> : null}
+        }, "暫不可用")} /> : null}
       {locationDetails(info).map(row => <Row key={row.label} label={row.label} value={row.value} />)}
       <Note text={pure?.locations.length
-        ? `IPPure 补充：${pure.locations.map(row => row.source).join("、")}。各服务实际出口见下方。`
-        : "位置来自 IP 数据库；不同出口已单独标注。"} />
+        ? `IPPure 補充：${pure.locations.map(row => row.source).join("、")}。各服務實際出口見下方。`
+        : "位置來自 IP 資料庫；不同出口已單獨標註。"} />
     </VStack>}
   </Band>
 }
@@ -261,7 +261,7 @@ export function LocationSection({ result, pure, rows, privacy, expanded, onToggl
 function TrafficRatio({ value, loading }: { value: IPPureReport["traffic"]; loading: boolean }) {
   const [human, setHuman] = useState(0)
   useEffect(() => { animate(() => setHuman(value?.human || 0), Animation.smooth({ duration: 0.8 })) }, [value?.human])
-  return <Row label="人机流量比">
+  return <Row label="人機流量比">
     <VStack alignment="leading" spacing={5} frame={{ maxWidth: "infinity", alignment: "leading" }}>
       <HStack spacing={0} frame={{ maxWidth: "infinity", height: 5 }}>
         <GeometryReader>{({ size }) => <HStack spacing={0} frame={{ width: size.width, height: 5 }} clipShape="capsule">
@@ -276,7 +276,7 @@ function TrafficRatio({ value, loading }: { value: IPPureReport["traffic"]; load
         <Text font={10} fontDesign="monospaced" foregroundStyle={ACCENT.pink} contentTransition="numericText">
           {`bot ${value ? value.bot.toFixed(2) + "%" : "—"}`}</Text>
       </HStack>
-      <Text font={10} foregroundStyle="secondaryLabel">{value ? "ASN 流量统计 · IPPure" : loading ? "正在查询 IPPure…" : "本次未取得统计"}</Text>
+      <Text font={10} foregroundStyle="secondaryLabel">{value ? "ASN 流量統計 · IPPure" : loading ? "正在查詢 IPPure…" : "本次未取得統計"}</Text>
     </VStack>
   </Row>
 }
@@ -284,7 +284,7 @@ function TrafficRatio({ value, loading }: { value: IPPureReport["traffic"]; load
 function ScorePending({ loading }: { loading: boolean }) {
   return <HStack spacing={8} padding={{ vertical: 10 }}>
     {loading ? <ProgressView controlSize="small" /> : null}
-    <Text font={12} foregroundStyle="secondaryLabel">{loading ? "正在获取评分…" : "本次未取得同地址评分"}</Text>
+    <Text font={12} foregroundStyle="secondaryLabel">{loading ? "正在取得評分…" : "本次未取得同位址評分"}</Text>
   </HStack>
 }
 
@@ -302,17 +302,17 @@ export function ReputationDetails({ reputation }: { reputation: LookupResult["re
   const first = detectionTime(reputation?.firstSeen)
   const last = detectionTime(reputation?.lastSeen)
   return <>
-    {reputation?.confidence != null ? <Row label="阳性置信度" value={`${reputation.confidence}%`} mono /> : null}
-    {devices?.address != null || devices?.subnet != null ? <Row label="设备估算">
+    {reputation?.confidence != null ? <Row label="陽性置信度" value={`${reputation.confidence}%`} mono /> : null}
+    {devices?.address != null || devices?.subnet != null ? <Row label="裝置估算">
       <VStack alignment="leading" spacing={4} frame={{ maxWidth: "infinity", alignment: "leading" }}>
         {devices.address != null ? <Text font={13} contentTransition="numericText">{`此 IP · ${devices.address.toLocaleString()} 台`}</Text> : null}
         {devices.subnet != null ? <Text font={11} foregroundStyle="secondaryLabel" contentTransition="numericText">
-          {`所在网段 · ${devices.subnet.toLocaleString()} 台`}</Text> : null}
+          {`所在網段 · ${devices.subnet.toLocaleString()} 台`}</Text> : null}
       </VStack>
     </Row> : null}
-    {first && first !== last ? <Row label="首次检出" value={first} mono /> : null}
-    {last ? <Row label="最近检出" value={last} mono /> : null}
-    {reputation ? <Note text="置信度表示对阳性检测的把握；设备数为数据库估算。记录时间为 UTC，不代表本机当前行为。" /> : null}
+    {first && first !== last ? <Row label="首次檢出" value={first} mono /> : null}
+    {last ? <Row label="最近檢出" value={last} mono /> : null}
+    {reputation ? <Note text="置信度表示對陽性檢測的把握；裝置數為資料庫估算。記錄時間為 UTC，不代表本機目前行為。" /> : null}
   </>
 }
 
@@ -330,32 +330,32 @@ export function WebRTCRows({ report, exits, loading, manual, privacy }: {
     <Note text={result.note} />
     {candidates.filter(c => c.scope !== "mdns").map(candidate => {
       const matches = exits.filter(exit => sameIP(normalizeRTCAddress(exit.ip) || "", candidate.address))
-      const label = candidate.type === "relay" ? "中继地址" : candidate.scope === "local" ? "本地地址"
-        : candidate.type === "srflx" ? "STUN 公网" : "WebRTC 公网"
+      const label = candidate.type === "relay" ? "中繼位址" : candidate.scope === "local" ? "本地位址"
+        : candidate.type === "srflx" ? "STUN 公網" : "WebRTC 公網"
       return <Row key={`${candidate.type}-${candidate.address}-${candidate.protocol}`} label={label}>
         <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity", alignment: "leading" }}>
           <Text font={13} fontDesign="monospaced" foregroundStyle={candidate.scope === "public" ? ACCENT.blue : "secondaryLabel"}
             fixedSize={{ horizontal: false, vertical: true }}>{formatIPAddress(candidate.address, privacy)}</Text>
           <Text font={10} foregroundStyle="secondaryLabel" fixedSize={{ horizontal: false, vertical: true }}>
-            {`${candidate.type} · ${candidate.protocol.toUpperCase()}${matches.length ? " · 与 " + matches.map(exit => exit.source).join(" / ") + " 一致" : ""}`}</Text>
+            {`${candidate.type} · ${candidate.protocol.toUpperCase()}${matches.length ? " · 與 " + matches.map(exit => exit.source).join(" / ") + " 一致" : ""}`}</Text>
         </VStack>
       </Row>
     })}
-    {candidates.some(c => c.scope === "mdns") ? <Row label="本地候选" value="mDNS 已隐藏地址" /> : null}
+    {candidates.some(c => c.scope === "mdns") ? <Row label="本地候選" value="mDNS 已隱藏位址" /> : null}
   </>
 }
 
 function ExitRows({ state, privacy }: { state: PageState; privacy: boolean }) {
   const exits: ExitObservation[] = state.manual ? [] : [
-    ...(state.ip ? [{ source: state.source || "当前出口", ip: state.ip, location: "" }] : []),
+    ...(state.ip ? [{ source: state.source || "目前出口", ip: state.ip, location: "" }] : []),
     ...(state.geo?.exits || []),
     ...(state.pure?.exit ? [state.pure.exit] : []),
   ]
   const differs = exits.some(exit => state.ip && !sameIP(exit.ip, state.ip))
   return <>
     <WebRTCRows report={state.rtc} exits={exits} loading={state.rtcLoading} manual={state.manual} privacy={privacy} />
-    {!state.manual ? <Note text="HTTP 出口对照" /> : null}
-    {state.manual ? <Row label="出口对照" value="手动查询不检测设备出口" /> : <>
+    {!state.manual ? <Note text="HTTP 出口對照" /> : null}
+    {state.manual ? <Row label="出口對照" value="手動查詢不檢測裝置出口" /> : <>
       {exits.map(exit => <Row key={exit.source} label={exit.source}>
         <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity", alignment: "leading" }}>
           <Text font={13} fontDesign="monospaced"
@@ -365,13 +365,13 @@ function ExitRows({ state, privacy }: { state: PageState; privacy: boolean }) {
             fixedSize={{ horizontal: false, vertical: true }}>{exit.location}</Text> : null}
         </VStack>
       </Row>)}
-      <Row label="对照结果">
-        <Tag text={state.loading ? "检测中" : exits.length < 2 ? "数据不足" : differs ? "存在出口差异" : "出口一致"}
+      <Row label="對照結果">
+        <Tag text={state.loading ? "檢測中" : exits.length < 2 ? "資料不足" : differs ? "存在出口差異" : "出口一致"}
           color={state.loading || exits.length < 2 ? ACCENT.violet : differs ? ACCENT.orange : ACCENT.green} />
       </Row>
       <Note text={differs
-        ? "分流或 IPv4 / IPv6 路径可能造成出口差异，不能据此判定 WebRTC 泄露。"
-        : "出口对照仅反映本次请求路径。"} />
+        ? "分流或 IPv4 / IPv6 路徑可能造成出口差異，不能據此判定 WebRTC 洩露。"
+        : "出口對照僅反映本次請求路徑。"} />
     </>}
   </>
 }
@@ -391,10 +391,10 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
 
   function scheduleWidgetReload() {
     if (widgetTimer.current !== null) clearTimeout(widgetTimer.current)
-    // Storage 共享写入在后台落盘；稍等再刷新，避免小组件读到上一份快照或旧隐私设置。
+    // Storage 共享寫入在後台落盤；稍等再重新整理，避免小工具讀到上一份快照或舊隱私設定。
     widgetTimer.current = setTimeout(() => {
       try { Widget.reloadUserWidgets() }
-      catch (error) { console.log("[IP检测] 小组件刷新失败", String(error)) }
+      catch (error) { console.log("[IP檢測] 小工具重新整理失敗", String(error)) }
     }, 300)
   }
 
@@ -409,26 +409,26 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       setSearchOpen(false)
     }, Animation.easeOut(0.28))
     let ip = address || ""
-    let source = manual ? "手动查询" : ""
+    let source = manual ? "手動查詢" : ""
     const update = (patch: Partial<PageState>) => {
       if (run === request.current) animate(() => setState(previous => ({ ...previous, ...patch })))
     }
-    // WebRTC 独立于 HTTP 出口探测；两者并行，HTTP 失败也能显示实际候选。
+    // WebRTC 獨立於 HTTP 出口探測；兩者並行，HTTP 失敗也能顯示實際候選。
     const rtcTask = manual ? Promise.resolve() : fetchWebRTC(() => run === request.current)
       .then(rtc => update({ rtc, rtcLoading: false }))
-      .catch(() => update({ rtc: { status: "error", candidates: [], errors: [], note: "WebRTC 检测失败，请重试。" }, rtcLoading: false }))
+      .catch(() => update({ rtc: { status: "error", candidates: [], errors: [], note: "WebRTC 檢測失敗，請重試。" }, rtcLoading: false }))
     try {
       if (!manual) {
         const probe = await withTimeout(fetchExitProbe(), 7000)
         if (run !== request.current) return
-        if (!probe) throw new Error("未能获取出口 IP，请检查网络后重新检测")
+        if (!probe) throw new Error("未能取得出口 IP，請檢查網路後重新檢測")
         ip = probe.address
         source = probe.source
       }
       update({ ip, source })
       const lookupTask = lookupAddress(ip, true)
         .then(result => {
-          update({ result, error: result.info ? null : "归属查询暂不可用，已保留同地址风险数据" })
+          update({ result, error: result.info ? null : "歸屬查詢暫不可用，已保留同位址風險資料" })
           return result
         })
         .catch(error => {
@@ -437,13 +437,13 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
         })
       const geoTask = fetchGeoReport(ip, !manual)
         .then(geo => { update({ geo }); return geo })
-        .catch(() => { update({ error: "部分位置来源暂时不可用" }); return null })
+        .catch(() => { update({ error: "部分位置來源暫時不可用" }); return null })
       const pureTask = fetchIPPure(ip, () => run === request.current)
         .then(pure => { update({ pure, pureLoading: false }); return pure })
         .catch(() => { update({ pureLoading: false }); return null })
       const [result, , , pureReport] = await Promise.all([lookupTask, geoTask, rtcTask, pureTask])
       if (run !== request.current) return
-      update({ loading: false, updatedAt: new Date().toLocaleTimeString("zh-CN", { hour12: false }) })
+      update({ loading: false, updatedAt: new Date().toLocaleTimeString("zh-TW", { hour12: false }) })
       saveWidgetSnapshot(buildWidgetSnapshot({
         ip,
         info: result?.info ?? null,
@@ -460,7 +460,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
   function search() {
     const ip = query.trim()
     if (!validIPAddress(ip)) {
-      setQueryError("请输入有效的 IPv4 或 IPv6 地址")
+      setQueryError("請輸入有效的 IPv4 或 IPv6 位址")
       return
     }
     void detect(ip)
@@ -511,7 +511,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
   const geoRows = GEO_SOURCES.map(source => pure?.locations.find(row => row.source === source)
     || state.geo?.rows.find(row => row.source === source)
     || { source, ip: null, location: "", status: "unavailable" as const,
-      note: state.loading ? "查询中…" : "暂不可用" })
+      note: state.loading ? "查詢中…" : "暫不可用" })
   const risk = flags?.risk ?? null
   const refresh = () => detect(state.manual ? state.ip : undefined)
   const toggleMap = () => animate(() => setMapExpanded(value => !value), Animation.spring({ duration: 0.38, bounce: 0.12 }))
@@ -522,7 +522,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       refreshable={refresh}
       toolbar={{
         cancellationAction:
-          <Button action={dismiss} role="close" buttonStyle="plain" accessibilityLabel="关闭">
+          <Button action={dismiss} role="close" buttonStyle="plain" accessibilityLabel="關閉">
             <CloseGlyph />
           </Button>,
         principal:
@@ -537,18 +537,18 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
             <HStack spacing={5} padding={{ bottom: 12 }}>
               <StatusDot active={state.loading} color={state.error ? ACCENT.orange : ACCENT.teal} />
               <Text font={11} fontWeight="medium" foregroundStyle="secondaryLabel">
-                {state.manual ? "手动查询" : "当前出口"}</Text>
+                {state.manual ? "手動查詢" : "目前出口"}</Text>
               <Spacer />
               <Text font={10} foregroundStyle="secondaryLabel" contentTransition="opacity">
-                {state.loading ? state.result && state.pureLoading ? "补充 IPPure…" : "正在检测…" : state.updatedAt || "等待重试"}</Text>
-              <IconButton icon={searchOpen ? "xmark" : "magnifyingglass"} label={searchOpen ? "关闭 IP 查询" : "查询 IP"}
+                {state.loading ? state.result && state.pureLoading ? "補充 IPPure…" : "正在檢測…" : state.updatedAt || "等待重試"}</Text>
+              <IconButton icon={searchOpen ? "xmark" : "magnifyingglass"} label={searchOpen ? "關閉 IP 查詢" : "查詢 IP"}
                 action={toggleSearch} active={searchOpen} />
-              <IconButton icon="arrow.clockwise" label="重新检测" action={refresh} disabled={state.loading} />
+              <IconButton icon="arrow.clockwise" label="重新檢測" action={refresh} disabled={state.loading} />
             </HStack>
             <HStack spacing={10} alignment="center" padding={{ bottom: 9 }}>
               <Text font={16} fontWeight="bold" frame={{ width: LABEL_WIDTH, alignment: "leading" }}>IP</Text>
               <ZStack alignment="leading" frame={{ maxWidth: "infinity", minHeight: 34 }}>
-                {searchOpen ? <TextField key="ip-query" title="IP 地址" prompt="输入 IPv4 / IPv6"
+                {searchOpen ? <TextField key="ip-query" title="IP 位址" prompt="輸入 IPv4 / IPv6"
                   value={query} onChanged={value => { setQuery(value); if (queryError) setQueryError("") }}
                   autofocus textFieldStyle="plain" font={17} fontDesign="monospaced"
                   foregroundStyle={ACCENT.blue}
@@ -562,10 +562,10 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
                     <Text font={22} fontDesign="monospaced" fontWeight="medium" foregroundStyle={ACCENT.blue}
                       lineLimit={2} minScaleFactor={0.55} contentTransition="opacity"
                       frame={{ maxWidth: "infinity", alignment: "leading" }}>
-                      {state.ip ? formatIPAddress(state.ip, privacy) : state.loading ? "检测中…" : "—"}</Text>
-                    <IconButton icon={privacy ? "eye.slash" : "eye"} label={privacy ? "显示完整 IP" : "隐藏 IP"}
+                      {state.ip ? formatIPAddress(state.ip, privacy) : state.loading ? "檢測中…" : "—"}</Text>
+                    <IconButton icon={privacy ? "eye.slash" : "eye"} label={privacy ? "顯示完整 IP" : "隱藏 IP"}
                       action={togglePrivacy} active={!privacy} />
-                    <IconButton icon={copied ? "checkmark" : "doc.on.doc"} label={copied ? "已复制" : "复制完整 IP"}
+                    <IconButton icon={copied ? "checkmark" : "doc.on.doc"} label={copied ? "已複製" : "複製完整 IP"}
                       action={copyIP} active={copied} disabled={!state.ip} />
                   </HStack>}
               </ZStack>
@@ -576,7 +576,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
             {state.manual ? <Button action={() => { setQuery(""); void detect() }} buttonStyle="plain">
               <HStack spacing={5} padding={{ bottom: 8 }}>
                 <Image systemName="arrow.uturn.backward" font={10} />
-                <Text font={11}>返回当前出口</Text>
+                <Text font={11}>返回目前出口</Text>
               </HStack>
             </Button> : null}
             {state.error ? <HStack alignment="top" spacing={6} padding={{ vertical: 8 }}>
@@ -591,9 +591,9 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
               </VStack>
             </Row>
             {networkDetails(info, network).map(row => <Row key={row.label} label={row.label} value={row.value} />)}
-            <Row label="AS 域名" value={clean(pure?.domain, state.result?.connection?.domain)} mono />
-            {flags?.hostname ? <Row label="IP 主机名" value={privacy ? "已隐藏 · 顶部眼睛可显示" : flags.hostname} mono={!privacy} /> : null}
-            <Row label="IP 范围" value={clean(pure?.range, flags?.range)} mono />
+            <Row label="AS 網域" value={clean(pure?.domain, state.result?.connection?.domain)} mono />
+            {flags?.hostname ? <Row label="IP 主機名稱" value={privacy ? "已隱藏 · 頂部眼睛可顯示" : flags.hostname} mono={!privacy} /> : null}
+            <Row label="IP 範圍" value={clean(pure?.range, flags?.range)} mono />
             <TrafficRatio value={pure?.traffic || null} loading={state.pureLoading} />
           </Band>
 
@@ -601,38 +601,38 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
             expanded={mapExpanded} onToggle={toggleMap} />
 
           <Band order={2}>
-            <Row label="IP 来源">
-              <Tag text={pure?.isBroadcast == null ? state.pureLoading ? "查询中" : "暂无判定" : pure.isBroadcast ? "广播 IP" : "原生 IP"}
+            <Row label="IP 來源">
+              <Tag text={pure?.isBroadcast == null ? state.pureLoading ? "查詢中" : "暫無判定" : pure.isBroadcast ? "廣播 IP" : "原生 IP"}
                 color={pure?.isBroadcast == null ? ACCENT.violet : pure.isBroadcast ? ACCENT.pink : ACCENT.teal} />
             </Row>
-            <Row label="IP 属性"><Tag text={attribute} color={hosting ? ACCENT.pink : ACCENT.blue} /></Row>
+            <Row label="IP 屬性"><Tag text={attribute} color={hosting ? ACCENT.pink : ACCENT.blue} /></Row>
             <ReputationFlags reputation={flags || null} proxy={proxy} />
-            <Note text="IP 来源与住宅分类由 IPPure 补充；代理与风险标记来自 ip-api / proxycheck，仅列出已命中项，未列出可能是未命中或暂无数据。" />
+            <Note text="IP 來源與住宅分類由 IPPure 補充；代理與風險標記來自 ip-api / proxycheck，僅列出已命中項，未列出可能是未命中或暫無資料。" />
           </Band>
 
-          <Band title="IPPure 系数" icon="shield.lefthalf.filled" hint="IPPure" shaded order={3}>
+          <Band title="IPPure 係數" icon="shield.lefthalf.filled" hint="IPPure" shaded order={3}>
             {pure?.risk == null ? <ScorePending loading={state.pureLoading} />
               : shouldShowRiskScale(pure.risk) ? <RiskScale key={`pure-${state.ip}`} value={pure.risk} /> : null}
             {pure?.note ? <Note text={pure.note} /> : null}
           </Band>
-          <Band title="Cloudflare 系数" hint="经 IPPure" order={4}>
+          <Band title="Cloudflare 係數" hint="經 IPPure" order={4}>
             {pure?.cloudflareRisk == null ? <ScorePending loading={state.pureLoading} />
               : shouldShowRiskScale(pure.cloudflareRisk) ? <RiskScale key={`cf-${state.ip}`} value={pure.cloudflareRisk} /> : null}
-            <Note text="浏览器检测分数会变化；仅显示与查询 IP 一致的结果。" />
+            <Note text="瀏覽器檢測分數會變化；僅顯示與查詢 IP 一致的結果。" />
           </Band>
-          <Band title="proxycheck 风险" hint="proxycheck.io" shaded order={5}>
+          <Band title="proxycheck 風險" hint="proxycheck.io" shaded order={5}>
             {risk == null ? <ScorePending loading={state.loading} />
               : shouldShowRiskScale(risk) ? <RiskScale key={`pc-${state.ip}`} value={risk} /> : null}
             <ReputationDetails reputation={flags || null} />
           </Band>
 
-          <Band title="泄露检测" icon="network" hint="WebRTC · 出口对照" order={6}>
+          <Band title="洩露檢測" icon="network" hint="WebRTC · 出口對照" order={6}>
             <ExitRows state={state} privacy={privacy} />
           </Band>
         </VStack>
         <HStack spacing={5} padding={{ top: 13 }} foregroundStyle="secondaryLabel">
           <Image systemName="arrow.down" font={9} />
-          <Text font={10}>下拉刷新 · 点击眼睛切换隐私显示</Text>
+          <Text font={10}>下拉重新整理 · 點選眼睛切換隱私顯示</Text>
         </HStack>
       </VStack>
     </ScrollView>

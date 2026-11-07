@@ -41,8 +41,8 @@ export interface WidgetProps {
 }
 
 function riskText(value: number | null, source: WidgetRiskSource): string {
-  if (value == null) return "风险 —"
-  const prefix = source === "IPPure" ? "IPPure" : source === "heuristic" ? "估算" : "风险"
+  if (value == null) return "風險 —"
+  const prefix = source === "IPPure" ? "IPPure" : source === "heuristic" ? "估算" : "風險"
   return `${prefix} ${value}%`
 }
 
@@ -218,7 +218,7 @@ function FullMapBackground(props: WidgetProps) {
   const isLarge = Widget.family === "systemLarge" || Widget.family === "systemExtraLarge"
   const isSmall = Widget.family === "systemSmall"
   const hasMap = !!props.mapImage && !!props.mapSize
-  // 定位图标始终固定在地图中心；地图中心与组件坐标 (3/4, 1/2) 重合。
+  // 定點陣圖標始終固定在地圖中心；地圖中心與元件座標 (3/4, 1/2) 重合。
   const mapCenter = {
     x: size.width * 0.75,
     y: size.height * 0.50,
@@ -350,7 +350,7 @@ function DashboardWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
   const location = formatIPLocation(info)
   const displayIP = formatIPAddress(info.query, getPrivacyMode())
   const asn = info.as || info.org || info.isp || "未知 ASN"
-  const accessType = props.accessType || "暂无分类"
+  const accessType = props.accessType || "暫無分類"
   const risk = riskText(props.riskValue, props.riskSource)
   const status = layout.medium
     ? `${accessType} · ${risk}`
@@ -376,14 +376,14 @@ function DashboardWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
             }}
           >
             <Text font={16} fontWeight="semibold" foregroundStyle={COLORS.title}>
-              IP信息概览
+              IP資訊概覽
             </Text>
             <Spacer />
             <VStack alignment="leading" spacing={10}>
               <DataRow icon="mappin.and.ellipse" label="位置" value={location} width={layout.leftWidth} />
               <DataRow icon="network" label="IP" value={displayIP} width={layout.leftWidth} />
               <DataRow icon="building.2" label="ASN" value={asn} width={layout.leftWidth} />
-              <DataRow icon="antenna.radiowaves.left.and.right" label="ISP" value={info.isp || "未知网络"} width={layout.leftWidth} />
+              <DataRow icon="antenna.radiowaves.left.and.right" label="ISP" value={info.isp || "未知網路"} width={layout.leftWidth} />
             </VStack>
             <Spacer />
             {props.riskValue != null && props.riskValue > 0
@@ -425,7 +425,7 @@ function DashboardWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
             foregroundStyle={COLORS.title}
             offset={{ x: 0, y: -5 }}
           >
-            IP信息概览
+            IP資訊概覽
           </Text>
           <DataRow compact icon="mappin.and.ellipse" label="位置" value={location} width={layout.leftWidth} />
           <DataRow compact icon="network" label="IP" value={displayIP} width={layout.leftWidth} />
@@ -449,7 +449,7 @@ function CompactWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
   const info = props.ipInfo!
   const location = formatIPLocation(info)
   const displayIP = formatIPAddress(info.query, getPrivacyMode())
-  const accessType = props.accessType || "暂无分类"
+  const accessType = props.accessType || "暫無分類"
   const risk = riskText(props.riskValue, props.riskSource)
   const height = Math.max(118, props.widgetSize.height - 24)
 
@@ -467,7 +467,7 @@ function CompactWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
           frame={{ width: props.layout.contentWidth, height }}
           position={{ x: props.widgetSize.width / 2, y: props.widgetSize.height / 2 }}
         >
-        <Text font={14} fontWeight="semibold" foregroundStyle={COLORS.title}>IP信息概览</Text>
+        <Text font={14} fontWeight="semibold" foregroundStyle={COLORS.title}>IP資訊概覽</Text>
         <Spacer />
         <DataRow compact icon="mappin.and.ellipse" value={location} width={props.layout.leftWidth} />
         <Spacer />
@@ -503,7 +503,7 @@ function EmptyWidget({ message }: { message: string }) {
 }
 
 function WidgetView(props: WidgetProps): VirtualNode {
-  if (!props.ipInfo) return <EmptyWidget message="无法获取 IP 数据" />
+  if (!props.ipInfo) return <EmptyWidget message="無法取得 IP 資料" />
   const layout = layoutMetrics(Widget.family, props.widgetSize)
   return layout.dashboard
     ? <DashboardWidget {...props} layout={layout} />
@@ -533,11 +533,11 @@ async function getWidgetProps(): Promise<WidgetProps> {
   let ipInfo: IPInfo | null = null
   let riskValue: number | null = null
   let riskSource: WidgetRiskSource = null
-  let accessType = "暂无分类"
+  let accessType = "暫無分類"
   let vpnStatus = "未知"
 
   if (snapshot) {
-    // 以页面刚查询的地址与风险为准，避免小组件另查出口导致 IP、地图、风险不同步。
+    // 以頁面剛查詢的位址與風險為準，避免小工具另查出口導致 IP、地圖、風險不同步。
     ipInfo = ipInfoFromSnapshot(snapshot)
     riskValue = snapshot.risk
     riskSource = snapshot.riskSource
@@ -550,7 +550,7 @@ async function getWidgetProps(): Promise<WidgetProps> {
         ipInfo: null,
         riskValue: null,
         riskSource: null,
-        accessType: "暂无分类",
+        accessType: "暫無分類",
         vpnStatus: "未知",
         widgetSize,
       }
@@ -608,9 +608,9 @@ async function presentIPWidget() {
   try {
     Widget.present(await renderIPWidget())
   } catch (error) {
-    console.error("[IP检测] 小组件渲染失败", error)
-    try { Widget.present(<EmptyWidget message="IP 数据暂不可用" />) }
-    catch (fallbackError) { console.error("[IP检测] 无法呈现错误视图", fallbackError) }
+    console.error("[IP檢測] 小工具渲染失敗", error)
+    try { Widget.present(<EmptyWidget message="IP 資料暫不可用" />) }
+    catch (fallbackError) { console.error("[IP檢測] 無法呈現錯誤檢視", fallbackError) }
   }
 }
 void presentIPWidget()

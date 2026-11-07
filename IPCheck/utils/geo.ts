@@ -1,5 +1,5 @@
 import { fetch } from "scripting"
-import { canonicalAddress, formatIPLocation } from "./ip"
+import { canonicalAddress, countryName, formatIPLocation } from "./ip"
 
 export interface GeoRow {
   source: string
@@ -14,7 +14,7 @@ export interface GeoReport { rows: GeoRow[]; exits: ExitObservation[] }
 type Location = { ip: string; country: string; code: string; region: string; city: string }
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : ""
 
-export async function withTimeout<T>(task: Promise<T> | (() => Promise<T>), ms = 6000, message = "请求超时"): Promise<T> {
+export async function withTimeout<T>(task: Promise<T> | (() => Promise<T>), ms = 6000, message = "請求逾時"): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
@@ -31,11 +31,7 @@ export function sameIP(a: string, b: string): boolean {
   return key !== null && key === canonicalAddress(b)
 }
 
-export function countryName(code: string): string {
-  if (!/^[A-Z]{2}$/i.test(code)) return ""
-  try { return new Intl.DisplayNames(["zh-Hans"], { type: "region" }).of(code.toUpperCase()) || code }
-  catch { return code.toUpperCase() }
-}
+export { countryName }
 
 async function request(url: string, plain = false): Promise<any> {
   return withTimeout(async () => {
@@ -52,25 +48,25 @@ function empty(source: string, note: string, status: "unavailable" | "unsupporte
 export async function collectGeoRow(source: string, target: string, probe: boolean, load: () => Promise<Location>): Promise<GeoRow> {
   try {
     const data = await load()
-    if (!canonicalAddress(data.ip)) throw new Error("未返回有效 IP")
-    if (!probe && !sameIP(data.ip, target)) throw new Error("返回地址不匹配")
+    if (!canonicalAddress(data.ip)) throw new Error("未回傳有效 IP")
+    if (!probe && !sameIP(data.ip, target)) throw new Error("回傳位址不匹配")
     const location = formatIPLocation({
       country: countryName(data.code) || data.country,
       countryCode: data.code, regionName: data.region, city: data.city,
     }, "")
-    if (!location) return { source, ip: data.ip, location: "", status: "unavailable", note: "位置暂不可用" }
+    if (!location) return { source, ip: data.ip, location: "", status: "unavailable", note: "位置暫不可用" }
     return {
       source, ip: data.ip, location, status: "ok",
       note: probe && !sameIP(data.ip, target) ? "不同出口" : undefined,
     }
   } catch (error) {
     const message = String(error).replace(/^Error: /, "")
-    return empty(source, /超时|timeout/i.test(message) ? "请求超时"
-      : /HTTP \d+/.test(message) ? message : /不匹配/.test(message) ? message : "暂不可用")
+    return empty(source, /逾時|timeout/i.test(message) ? "請求逾時"
+      : /HTTP \d+/.test(message) ? message : /不匹配/.test(message) ? message : "暫不可用")
   }
 }
 
-/** 地址库并行查询；Cloudflare 只观测当前请求；GeoJS 当前出口时观测实际请求，手动查询时查目标 IP。 */
+/** 位址庫並行查詢；Cloudflare 只觀測目前請求；GeoJS 目前出口時觀測實際請求，手動查詢時查目標 IP。 */
 export async function fetchGeoReport(ip: string, currentExit: boolean): Promise<GeoReport> {
   const target = ip.trim()
   const encoded = encodeURIComponent(target)
@@ -82,10 +78,10 @@ export async function fetchGeoReport(ip: string, currentExit: boolean): Promise<
         return [line.slice(0, split), line.slice(split + 1).trim()]
       }))
       return { ip: text(values.ip), country: "", code: text(values.loc), region: "", city: "" }
-    }) : Promise.resolve(empty("Cloudflare", "仅支持当前出口", "unsupported")),
+    }) : Promise.resolve(empty("Cloudflare", "僅支援目前出口", "unsupported")),
     collectGeoRow("IP2Location", target, false, async () => {
       const data = await request(`https://api.ip2location.io/?ip=${encoded}`)
-      if (data.error) throw new Error("数据源不可用")
+      if (data.error) throw new Error("資料來源不可用")
       return { ip: text(data.ip), country: text(data.country_name), code: text(data.country_code),
         region: text(data.region_name), city: text(data.city_name) }
     }),
@@ -113,5 +109,5 @@ export async function fetchGeoReport(ip: string, currentExit: boolean): Promise<
       exits.push({ source: row.source, ip: row.ip, location: row.location })
     }
   }
-  return { rows: [cloudflare, ip2, dbip, empty("MaxMind", "未接入数据源", "unsupported"), ipinfo, geojs], exits }
+  return { rows: [cloudflare, ip2, dbip, empty("MaxMind", "未接入資料來源", "unsupported"), ipinfo, geojs], exits }
 }

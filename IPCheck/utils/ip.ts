@@ -1,13 +1,15 @@
 // File: utils/ip.ts
-// 获取 IP 信息并计算风险值
+// 取得 IP 資訊並計算風險值
 import { fetch, Device } from "scripting"
+import { toTraditional } from "./s2t"
 
+// ip-api 沒有繁體選項，地名以 zh-CN 取得後再由 toTraditional 轉為繁體。
 export const API_URL = "http://ip-api.com/json/?lang=zh-CN"
-// 出口 IP 探针（依序尝试，取第一个有效公网地址）
+// 出口 IP 探針（依序嘗試，取第一個有效公網位址）
 const EXIT_IP_APIS = [
-  "https://api.ipify.org?format=json",  // 首选：ipify，全球 CDN
-  "https://icanhazip.com",              // 备用1：Cloudflare，纯文本
-  "https://checkip.amazonaws.com"       // 备用2：AWS，纯文本
+  "https://api.ipify.org?format=json",  // 首選：ipify，全球 CDN
+  "https://icanhazip.com",              // 備用1：Cloudflare，純文本
+  "https://checkip.amazonaws.com"       // 備用2：AWS，純文本
 ]
 
 export interface IPInfo {
@@ -26,7 +28,7 @@ export interface IPInfo {
   proxy?: boolean;
   hosting?: boolean;
   mobile?: boolean;
-  // 可选字段保持小组件和现有 IPInfo 调用方兼容。
+  // 可選欄位保持小工具和現有 IPInfo 呼叫方相容。
   continent?: string;
   continentCode?: string;
   timezone?: string;
@@ -53,7 +55,7 @@ function dottedIPv4ToGroups(value: string): string | null {
 
 export function expandIPv6(address: string): string[] | null {
   let source = address.split("%")[0].toLowerCase()
-  // RFC 4291 允许 IPv6 尾段写成点分 IPv4（如 ::ffff:192.0.2.1）。
+  // RFC 4291 允許 IPv6 尾段寫成點分 IPv4（如 ::ffff:192.0.2.1）。
   if (source.includes(".")) {
     const tail = source.slice(source.lastIndexOf(":") + 1)
     const groups = dottedIPv4ToGroups(tail)
@@ -86,7 +88,7 @@ export function canonicalAddress(value: string): string | null {
   }
   const groups = expandIPv6(source)
   if (!groups) return null
-  // IPv4-mapped IPv6 与对应 IPv4 视为同一地址，避免双栈出口被误判为不同。
+  // IPv4-mapped IPv6 與對應 IPv4 視為同一位址，避免雙堆疊出口被誤判為不同。
   if (groups.slice(0, 5).every(group => group === "0000") && groups[5] === "ffff") {
     const a = parseInt(groups[6], 16), b = parseInt(groups[7], 16)
     return [a >> 8, a & 255, b >> 8, b & 255].join(".")
@@ -120,50 +122,61 @@ export function formatIPLocation(
   if (!info) return fallback
 
   const code = (info.countryCode || "").toUpperCase()
-  const source = `${info.country || ""} ${info.regionName || ""} ${info.city || ""}`.toLowerCase()
+  // 資料來源可能回傳簡體，先統一轉為繁體再判斷與顯示。
+  const country = countryName(code) || toTraditional(info.country || "") || code
+  const regionName = toTraditional(info.regionName || "")
+  const city = toTraditional(info.city || "")
+  const source = `${country} ${regionName} ${city}`.toLowerCase()
 
-  // 台湾独立显示为国家：去掉数据源可能附带的“中国 / 台湾省 / Province of China”等字样。
-  if (code === "TW" || /台湾|台灣|taiwan/.test(source)) {
-    const detail = [info.regionName, info.city]
-      .map(value => (value || "").replace(/^(中国|中國)\s*/, "").replace(/^(台湾|台灣)(省|地区|地區)\s*/, "").trim())
+  // 台灣獨立顯示為國家：去掉資料來源可能附帶的“中國 / 台灣省 / Province of China”等字樣。
+  if (code === "TW" || /台灣|taiwan/.test(source)) {
+    const detail = [regionName, city]
+      .map(value => value.replace(/^中國\s*/, "").replace(/^台灣(省|地區)\s*/, "").trim())
       .filter((value, index, values) =>
         !!value &&
-        !/^(中国|中國|台湾|台灣|taiwan|taiwan \(province of china\)|taiwan, province of china)$/i.test(value) &&
+        !/^(中國|台灣|taiwan|taiwan \(province of china\)|taiwan, province of china)$/i.test(value) &&
         values.indexOf(value) === index
       )
-    return ["台湾", ...detail].join(" · ")
+    return ["台灣", ...detail].join(" · ")
   }
 
-  const detail = [info.regionName, info.city]
-    .filter((value, index, values): value is string =>
+  const detail = [regionName, city]
+    .filter((value, index, values) =>
       !!value &&
-      !/^(香港|香港特别行政区|澳门|澳门特别行政区|hong kong|macao|macau)$/i.test(value) &&
+      !/^(香港|香港特別行政區|澳門|澳門特別行政區|hong kong|macao|macau)$/i.test(value) &&
       values.indexOf(value) === index
     )
 
   let region: string | null = null
   if (code === "HK" || source.includes("香港") || source.includes("hong kong")) {
-    region = "香港地区"
-  } else if (code === "MO" || source.includes("澳门") || source.includes("macao") || source.includes("macau")) {
-    region = "澳门地区"
+    region = "香港地區"
+  } else if (code === "MO" || source.includes("澳門") || source.includes("macao") || source.includes("macau")) {
+    region = "澳門地區"
   }
 
-  if (region) return ["中国", region, ...detail].join(" · ")
+  if (region) return ["中國", region, ...detail].join(" · ")
 
-  return [info.country, info.regionName, info.city]
-    .filter((value, index, values): value is string => !!value && values.indexOf(value) === index)
+  return [country, regionName, city]
+    .filter((value, index, values) => !!value && values.indexOf(value) === index)
     .join(" · ") || fallback
 }
 
+/** 國家代碼轉繁體中文國名（台灣用語）；代碼無效時回傳空字串。 */
+export function countryName(code: string): string {
+  if (!/^[A-Z]{2}$/i.test(code)) return ""
+  try { return new Intl.DisplayNames(["zh-Hant-TW", "zh-Hant"], { type: "region" }).of(code.toUpperCase()) || "" }
+  catch { return "" }
+}
+
 const RISK_KEYWORDS = {
-  dataCenter: ["数据中心", "Amazon", "Google", "Tencent", "Alibaba", "Cloudflare", "IDC", "DMIT", "Vultr", "DigitalOcean", "Linode", "OVH"],
-  homeBroadband: ["电信", "宽带", "HiNet", "Chunghwa", "Seednet", "So-net", "Kbro", "Comcast", "Verizon", "家庭", "住宅"],
-  highRiskCountries: ["俄罗斯", "印度", "乌克兰"],
-  vpnKeywords: ["VPN", "Proxy", "Tunnel", "虚拟", "加速器", "节点"]
+  dataCenter: ["資料中心", "數據中心", "Amazon", "Google", "Tencent", "Alibaba", "Cloudflare", "IDC", "DMIT", "Vultr", "DigitalOcean", "Linode", "OVH"],
+  homeBroadband: ["電信", "寬頻", "寬帶", "HiNet", "Chunghwa", "Seednet", "So-net", "Kbro", "Comcast", "Verizon", "家庭", "住宅"],
+  highRiskCountries: ["俄羅斯", "印度", "烏克蘭"],
+  vpnKeywords: ["VPN", "Proxy", "Tunnel", "虛擬", "加速器", "節點"]
 };
 
 /**
- * 获取本地活跃的网络接口信息
+ * 取得本地活躍的網路介面資訊
  */
 function getLocalNetworkInfo(): { hasVPNInterface: boolean } {
   try {
@@ -173,7 +186,7 @@ function getLocalNetworkInfo(): { hasVPNInterface: boolean } {
 
     for (const [name, addresses] of Object.entries(interfaces)) {
       const lowerName = name.toLowerCase();
-      // 检查是否为VPN接口
+      // 檢查是否為VPN介面
       if (vpnInterfaceKeywords.some(kw => lowerName.includes(kw))) {
         const hasExternal = addresses.some(addr => !addr.isInternal);
         if (hasExternal) {
@@ -189,13 +202,13 @@ function getLocalNetworkInfo(): { hasVPNInterface: boolean } {
   }
 }
 
-/** 保守识别可用于出口对照的公网地址；不把本地及文档网段计为公网。 */
+/** 保守識別可用於出口對照的公網位址；不把本地及文件網段計為公網。 */
 export function isPublicExitAddress(value: string): boolean {
   const ip = canonicalAddress(value)
   if (!ip) return false
   if (ip.includes(":")) {
     const groups = ip.split(":").map(group => parseInt(group, 16))
-    // RFC 6052 的全球 NAT64 前缀不在通常的 2000::/3 内。
+    // RFC 6052 的全球 NAT64 前綴不在通常的 2000::/3 內。
     if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every(group => group === 0)) {
       return isPublicExitAddress([groups[6] >> 8, groups[6] & 255, groups[7] >> 8, groups[7] & 255].join("."))
     }
@@ -214,7 +227,7 @@ export function isPublicExitAddress(value: string): boolean {
 }
 
 /**
- * 分析ISP类型
+ * 分析ISP型別
  */
 function analyzeISP(isp: string, org: string): {
   isDataCenter: boolean;
@@ -226,22 +239,22 @@ function analyzeISP(isp: string, org: string): {
   const orgLower = org.toLowerCase();
   const combined = `${ispLower} ${orgLower}`;
 
-  // 检测数据中心
+  // 檢測資料中心
   const isDataCenter = RISK_KEYWORDS.dataCenter.some(kw =>
     combined.includes(kw.toLowerCase())
   );
 
-  // 检测家宽
+  // 檢測家寬
   const isHomeBroadband = RISK_KEYWORDS.homeBroadband.some(kw =>
     combined.includes(kw.toLowerCase())
   );
 
-  // 检测VPN服务商
+  // 檢測VPN服務商
   const isVPNService = RISK_KEYWORDS.vpnKeywords.some(kw =>
     combined.includes(kw.toLowerCase())
   );
 
-  // 计算置信度
+  // 計算置信度
   let confidence = 50;
   if (isDataCenter) confidence += 30;
   if (isVPNService) confidence += 20;
@@ -251,7 +264,7 @@ function analyzeISP(isp: string, org: string): {
 }
 
 /**
- * 综合判断VPN/代理状态（含多源IP对比）
+ * 綜合判斷VPN/代理狀態（含多源IP對比）
  */
 export function detectVPNStatus(
   ipInfo: IPInfo,
@@ -270,7 +283,7 @@ export function detectVPNStatus(
   let isProxy = false;
   let proxyType = "";
 
-  // 1. 多源IP对比（核心检测）
+  // 1. 多源IP對比（核心檢測）
   if (probeIP && !sameAddress(probeIP, intlIP)) {
     // IP不一致 = 存在分流代理/旁路由
     isProxy = true;
@@ -278,24 +291,24 @@ export function detectVPNStatus(
     vpnScore += 50;
   }
 
-  // 2. VPN接口检测 (+40分)
+  // 2. VPN介面檢測 (+40分)
   if (localInfo.hasVPNInterface) {
     vpnScore += 40;
   }
 
-  // 3. ISP分析 (+30分如果是数据中心/VPN服务)
+  // 3. ISP分析 (+30分如果是資料中心/VPN服務)
   if (ispAnalysis.isVPNService) {
     vpnScore += 35;
   } else if (ispAnalysis.isDataCenter) {
     vpnScore += 25;
   }
 
-  // 4. 如果明确是家宽，降低VPN可能性 (-20分)
+  // 4. 如果明確是家寬，降低VPN可能性 (-20分)
   if (ispAnalysis.isHomeBroadband && !ispAnalysis.isDataCenter) {
     vpnScore -= 20;
   }
 
-  // 计算最终置信度
+  // 計算最終置信度
   let confidence = ispAnalysis.confidence;
   if (vpnScore > 0) {
     confidence = Math.min(95, confidence + vpnScore);
@@ -303,10 +316,10 @@ export function detectVPNStatus(
     confidence = Math.max(5, confidence);
   }
 
-  // 判定阈值：>= 60分认为是VPN/代理
+  // 判定閾值：>= 60分認為是VPN/代理
   const isVPN = vpnScore >= 60;
 
-  // 如果IP分流且VPN接口检测成功，认为是VPN
+  // 如果IP分流且VPN介面檢測成功，認為是VPN
   if (isProxy && localInfo.hasVPNInterface) {
     return {
       isVPN: true,
@@ -329,7 +342,8 @@ export function parseIPInfo(value: unknown, address?: string): IPInfo | null {
   const data = value as Record<string, unknown>
   const query = typeof data.query === "string" ? data.query.trim() : ""
   if (data.status !== "success" || !canonicalAddress(query) || address && !sameAddress(query, address)) return null
-  const text = (key: string) => typeof data[key] === "string" ? (data[key] as string).trim() : ""
+  // ip-api 以 zh-CN 回傳，文字欄位統一轉為繁體。
+  const text = (key: string) => typeof data[key] === "string" ? toTraditional((data[key] as string).trim()) : ""
   const flag = (key: string) => typeof data[key] === "boolean" ? data[key] as boolean : undefined
   const coordinate = (key: string) => typeof data[key] === "number" && Number.isFinite(data[key]) ? data[key] as number : NaN
   return {
@@ -352,14 +366,14 @@ export async function fetchIPInfo(address?: string): Promise<IPInfo | null> {
     if (!response.ok) return null;
     return parseIPInfo(await response.json(), address);
   } catch (error) {
-    console.error("获取 IP 数据失败：", error);
+    console.error("取得 IP 資料失敗：", error);
     return null;
   }
 }
 
 /**
- * 获取独立出口IP（用于与 ip-api 对比检测分流代理/旁路由）
- * 依序尝试 ipify / icanhazip / AWS，每个 2 秒超时
+ * 取得獨立出口IP（用於與 ip-api 對比檢測分流代理/旁路由）
+ * 依序嘗試 ipify / icanhazip / AWS，每個 2 秒逾時
  */
 export async function fetchExitProbe(): Promise<{ address: string; source: string } | null> {
   for (const apiUrl of EXIT_IP_APIS) {
@@ -368,12 +382,12 @@ export async function fetchExitProbe(): Promise<{ address: string; source: strin
 
       if (response.ok) {
         const text = await response.text().catch(() => "");
-        // 尝试解析JSON或直接返回IP
+        // 嘗試解析JSON或直接回傳IP
         let ip = text.trim();
         try {
           const data = JSON.parse(text);
           ip = typeof data.ip === "string" ? data.ip : "";
-        } catch { /* 纯文本接口直接返回地址 */ }
+        } catch { /* 純文本介面直接回傳位址 */ }
         if (isPublicExitAddress(ip)) {
           return { address: ip, source: new URL(apiUrl).hostname };
         }
@@ -383,7 +397,7 @@ export async function fetchExitProbe(): Promise<{ address: string; source: strin
     }
   }
 
-  console.log("[IP检测] 出口探针暂不可用");
+  console.log("[IP檢測] 出口探針暫不可用");
   return null;
 }
 
@@ -394,13 +408,13 @@ export async function fetchProbeIP(): Promise<string | null> {
 export function calculateRiskValue(ipInfo: IPInfo, probeIP: string | null = null) {
   let riskValue = 0;
 
-  // 使用新的VPN检测方法（含IP对比）
+  // 使用新的VPN檢測方法（含IP對比）
   const vpnStatus = detectVPNStatus(ipInfo, probeIP);
 
   // ISP分析
   const ispAnalysis = analyzeISP(ipInfo.isp, ipInfo.org);
 
-  // 风险计算
+  // 風險計算
   if (vpnStatus.isVPN || vpnStatus.isProxy) {
     riskValue += vpnStatus.confidence * 0.5;
   }
@@ -419,17 +433,17 @@ export function calculateRiskValue(ipInfo: IPInfo, probeIP: string | null = null
 
   riskValue = Math.max(0, Math.min(100, riskValue));
 
-  // 状态显示文本
-  let vpnStatusText = "未连接";
+  // 狀態顯示文本
+  let vpnStatusText = "未連線";
   if (vpnStatus.isVPN) {
-    vpnStatusText = "已连接";
+    vpnStatusText = "已連線";
   } else if (vpnStatus.isProxy) {
     vpnStatusText = vpnStatus.proxyType;
   }
 
   return {
     riskValue: Math.round(riskValue),
-    isHomeBroadband: ispAnalysis.isHomeBroadband ? "家宽" : "非家宽",
+    isHomeBroadband: ispAnalysis.isHomeBroadband ? "家寬" : "非家寬",
     vpnStatus: vpnStatusText
   };
 }

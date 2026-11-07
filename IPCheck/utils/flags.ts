@@ -4,18 +4,18 @@ export type RiskFlagId = "proxy" | "vpn" | "tor" | "anonymous" | "scraper" | "co
 export type RiskFlag = { id: RiskFlagId; label: string; short: string }
 
 const ORDER: RiskFlag[] = [
-  { id: "proxy", label: "代理标记", short: "代理" },
-  { id: "vpn", label: "VPN 标记", short: "VPN" },
+  { id: "proxy", label: "代理標記", short: "代理" },
+  { id: "vpn", label: "VPN 標記", short: "VPN" },
   { id: "tor", label: "Tor 出口", short: "Tor" },
-  { id: "anonymous", label: "匿名化标记", short: "匿名化" },
-  { id: "scraper", label: "爬虫标记", short: "爬虫" },
-  { id: "compromised", label: "受侵害标记", short: "受侵害" },
+  { id: "anonymous", label: "匿名化標記", short: "匿名化" },
+  { id: "scraper", label: "爬蟲標記", short: "爬蟲" },
+  { id: "compromised", label: "受侵害標記", short: "受侵害" },
 ]
 
 /**
- * 只返回数据库明确命中的标记。false 与 null 都不占位：
- * 未标记、查询中、暂无数据不再生成任何行。
- * proxy 已由页面按 proxycheck 优先、ip-api 兜底解析。
+ * 只回傳資料庫明確命中的標記。false 與 null 都不佔位：
+ * 未標記、查詢中、暫無資料不再生成任何行。
+ * proxy 已由頁面按 proxycheck 優先、ip-api 備援解析。
  */
 export function activeRiskFlags(
   reputation: LookupResult["reputation"],
@@ -32,7 +32,7 @@ export function activeRiskFlags(
   return ORDER.filter(flag => hits[flag.id])
 }
 
-/** 至少有一个布尔标记可判定时，才能把空结果称为“未标记”。 */
+/** 至少有一個布林標記可判定時，才能把空結果稱為“未標記”。 */
 export function hasKnownRiskFlags(
   reputation: LookupResult["reputation"],
   proxy?: boolean | null,
@@ -44,7 +44,7 @@ export function hasKnownRiskFlags(
   ].some(value => value != null)
 }
 
-/** 0 分代表无风险，不渲染刻度条；缺失与正分分别交给待获取状态和 RiskScale。 */
+/** 0 分代表無風險，不渲染刻度條；缺失與正分分別交給待取得狀態和 RiskScale。 */
 export function shouldShowRiskScale(value: number | null | undefined): boolean {
   return typeof value === "number" && Number.isFinite(value) && value > 0
 }
