@@ -11,6 +11,7 @@ import type { LookupResult } from "./utils/lookup"
 import { accessTypeLabel, detectionTime, locationDetails, networkDetails } from "./utils/details"
 import { activeRiskFlags, shouldShowRiskScale } from "./utils/flags"
 import { buildWidgetSnapshot, saveWidgetSnapshot } from "./utils/widget_sync"
+import { clearPokeKey, hasPokeKey, notifyPokeIfChanged, sendPokeTest, setPokeKey } from "./utils/poke"
 import { fetchGeoReport, sameIP, withTimeout } from "./utils/geo"
 import type { ExitObservation, GeoReport, GeoRow } from "./utils/geo"
 import { fetchIPPure } from "./utils/ippure"
@@ -385,6 +386,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
   const [query, setQuery] = useState("")
   const [queryError, setQueryError] = useState("")
   const [copied, setCopied] = useState(false)
+  const [pokeOn, setPokeOn] = useState(hasPokeKey())
   const request = useRef(0)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const widgetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -444,13 +446,17 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       const [result, , , pureReport] = await Promise.all([lookupTask, geoTask, rtcTask, pureTask])
       if (run !== request.current) return
       update({ loading: false, updatedAt: new Date().toLocaleTimeString("zh-TW", { hour12: false }) })
-      saveWidgetSnapshot(buildWidgetSnapshot({
+      const snapshot = buildWidgetSnapshot({
         ip,
         info: result?.info ?? null,
         reputation: result?.reputation ?? null,
         pure: pureReport,
-      }))
+      })
+      saveWidgetSnapshot(snapshot)
       scheduleWidgetReload()
+      // 只有自動檢測的出口 IP 才比對變更；手動查詢別的 IP 不算。
+      if (!manual) void notifyPokeIfChanged(snapshot, "app")
+        .catch(() => console.log("[IP檢測] Poke 通知流程失敗"))
     } catch (error) {
       await rtcTask
       update({ loading: false, pureLoading: false, error: String(error).replace(/^Error: /, "") })
@@ -479,6 +485,47 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
     setPrivacyMode(next)
     animate(() => setPrivacy(next))
     scheduleWidgetReload()
+  }
+
+  async function promptPokeKey(): Promise<void> {
+    const value = await Dialog.prompt({
+      title: "Poke API Key",
+      message: "到 poke.com/kitchen 的 API Keys 建立。Key 只存在這支 iPhone 的鑰匙圈，不會上傳到 GitHub。",
+      placeholder: "貼上 API Key",
+      obscureText: true,
+    })
+    if (value == null || !value.trim()) return
+    if (!setPokeKey(value)) {
+      await Dialog.alert({ title: "儲存失敗", message: "無法寫入鑰匙圈，請再試一次。" })
+      return
+    }
+    setPokeOn(true)
+    const test = await sendPokeTest()
+    await Dialog.alert(test.ok
+      ? { title: "已啟用", message: "已傳送測試訊息到 Poke。之後出口 IP 變更時會通知你。" }
+      : { title: "Key 已儲存，但測試失敗", message: test.error ?? "請確認 Key 是否正確。" })
+  }
+
+  async function pokeSettings() {
+    if (!hasPokeKey()) return promptPokeKey()
+    const index = await Dialog.actionSheet({
+      title: "Poke 通知",
+      message: "出口 IP 變更時傳訊息給你的 Poke。",
+      actions: [
+        { label: "傳送測試訊息" },
+        { label: "更換 API Key" },
+        { label: "移除 API Key", destructive: true },
+      ],
+    })
+    if (index === 0) {
+      const test = await sendPokeTest()
+      await Dialog.alert({ title: test.ok ? "已傳送" : "傳送失敗", message: test.ok ? "請到 Poke 對話查看。" : test.error ?? "未知錯誤" })
+    } else if (index === 1) {
+      await promptPokeKey()
+    } else if (index === 2) {
+      clearPokeKey()
+      setPokeOn(hasPokeKey())
+    }
   }
 
   function copyIP() {
@@ -543,6 +590,8 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
                 {state.loading ? state.result && state.pureLoading ? "補充 IPPure…" : "正在檢測…" : state.updatedAt || "等待重試"}</Text>
               <IconButton icon={searchOpen ? "xmark" : "magnifyingglass"} label={searchOpen ? "關閉 IP 查詢" : "查詢 IP"}
                 action={toggleSearch} active={searchOpen} />
+              <IconButton icon={pokeOn ? "bell.fill" : "bell"} label="Poke 通知設定"
+                action={() => void pokeSettings()} active={pokeOn} />
               <IconButton icon="arrow.clockwise" label="重新檢測" action={refresh} disabled={state.loading} />
             </HStack>
             <HStack spacing={10} alignment="center" padding={{ bottom: 9 }}>
