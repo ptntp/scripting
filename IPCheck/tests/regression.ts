@@ -12,7 +12,7 @@ import { classifyInterfaces, isHttp3, latencyLabel, natLabel, parseTrace,
   GLOBAL_LATENCY_URLS, TAIWAN_LATENCY_URLS, QUIC_TRACE_URLS } from "../utils/diagnose"
 import { SERVICES, countUsable, judgeChatGPT, judgeNetflix, judgeReach, makeService, mergeService,
   netflixRegion, parseBahamut, parseYoutube, pendingServices, regionCode } from "../utils/unlock"
-import { buildDiagSummary, diagSummaryText, parseDiagSummary } from "../utils/widget_sync"
+import { buildDiagSummary, diagSummaryText, parseDiagSummary, widgetKind } from "../utils/widget_sync"
 import { maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseSurgeSettings, policyLabel,
   protocolFromName, resolveSurgeInfo } from "../utils/surge"
 import type { IPInfo } from "../utils/ip"
@@ -251,6 +251,15 @@ async function run() {
   check("診斷摘要解析", () => parseDiagSummary(JSON.parse(JSON.stringify(summary)))?.aiOk === 1
     && parseDiagSummary({ ...summary, mediaOk: 9 }) === null && parseDiagSummary({ ...summary, version: 2 }) === null
     && parseDiagSummary(null) === null)
+
+  check("小工具版面：標準尺寸", () => widgetKind("systemSmall", { width: 158, height: 158 }) === "small"
+    && widgetKind("systemMedium", { width: 338, height: 158 }) === "medium"
+    && widgetKind("systemLarge", { width: 338, height: 354 }) === "large"
+    && widgetKind("systemExtraLarge", { width: 715, height: 354 }) === "large")
+  check("小工具版面：未知尺寸依大小判定", () => widgetKind("systemExtraLargePortrait", { width: 338, height: 547 }) === "large"
+    && widgetKind("somethingNew", { width: 338, height: 547 }) === "large"
+    && widgetKind(undefined, { width: 338, height: 158 }) === "medium"
+    && widgetKind(undefined, { width: 158, height: 158 }) === "small")
 
   // ── Surge HTTP API ──
   const groupsData = {

@@ -185,3 +185,17 @@ export function readDiagSummary(maxAgeMs = 24 * 3600 * 1000): DiagSummary | null
   const summary = parseDiagSummary(Storage.get<unknown>(DIAG_SUMMARY_KEY, { shared: true }))
   return summary && Date.now() - summary.savedAt <= maxAgeMs ? summary : null
 }
+
+export type WidgetKind = "small" | "medium" | "large"
+
+/**
+ * 判斷小工具版面。系統可能回報腳本不認得的尺寸名稱（例如新版 iOS 的直式特大尺寸），
+ * 這時改依實際顯示大小決定，避免大尺寸落入小型版面。
+ */
+export function widgetKind(family: string | undefined, size: { width: number; height: number }): WidgetKind {
+  if (family === "systemSmall") return "small"
+  if (family === "systemMedium") return "medium"
+  if (family && /large/i.test(family)) return "large"
+  if (size.height >= 280) return "large"
+  return size.width >= size.height * 1.6 ? "medium" : "small"
+}

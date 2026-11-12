@@ -26,7 +26,7 @@ import {
 import { hasCoordinates, takeIPMapSnapshot } from "./utils/map"
 import { withTimeout } from "./utils/geo"
 import { accessTypeLabel } from "./utils/details"
-import { diagSummaryText, readDiagSummary, readWidgetSnapshot } from "./utils/widget_sync"
+import { diagSummaryText, readDiagSummary, readWidgetSnapshot, widgetKind } from "./utils/widget_sync"
 import type { WidgetRiskSource, WidgetSnapshot } from "./utils/widget_sync"
 
 export interface WidgetProps {
@@ -74,8 +74,9 @@ const COLORS = {
 } as const
 
 function layoutMetrics(family: string | undefined, size: { width: number; height: number }): Layout {
-  const medium = family === "systemMedium"
-  const large = family === "systemLarge" || family === "systemExtraLarge"
+  const kind = widgetKind(family, size)
+  const medium = kind === "medium"
+  const large = kind === "large"
   const dashboard = medium || large
   const padding = large ? 16 : 12
   const contentWidth = Math.max(130, size.width - padding * 2)
@@ -217,8 +218,9 @@ function widgetRootModifiers() {
 function FullMapBackground(props: WidgetProps) {
   const size = props.widgetSize
   const transparentMode = Widget.isTransparentMode
-  const isLarge = Widget.family === "systemLarge" || Widget.family === "systemExtraLarge"
-  const isSmall = Widget.family === "systemSmall"
+  const kind = widgetKind(Widget.family, size)
+  const isLarge = kind === "large"
+  const isSmall = kind === "small"
   const hasMap = !!props.mapImage && !!props.mapSize
   // 定點陣圖標始終固定在地圖中心；地圖中心與元件座標 (3/4, 1/2) 重合。
   const mapCenter = {
@@ -570,13 +572,14 @@ async function getWidgetProps(): Promise<WidgetProps> {
   let mapImage: any
   let mapSize: { width: number; height: number } | undefined
 
-  if ((layout.dashboard || Widget.family === "systemSmall") && hasCoordinates(ipInfo)) {
+  if (hasCoordinates(ipInfo)) {
     const snapshotOptions = {
       lat: ipInfo.lat,
       lon: ipInfo.lon,
       width: widgetSize.width,
       height: widgetSize.height,
-      family: Widget.family,
+      // 地圖縮放只認得標準尺寸名稱，未知尺寸以判定後的版面代入。
+      family: layout.large ? "systemLarge" : layout.medium ? "systemMedium" : "systemSmall",
     }
     const [lightSnap, darkSnap] = await Promise.all([
       withTimeout(() => takeIPMapSnapshot({ ...snapshotOptions, appearance: "light" }), 6000).catch(() => null),
