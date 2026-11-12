@@ -26,7 +26,7 @@ import {
 import { hasCoordinates, takeIPMapSnapshot } from "./utils/map"
 import { withTimeout } from "./utils/geo"
 import { accessTypeLabel } from "./utils/details"
-import { readWidgetSnapshot } from "./utils/widget_sync"
+import { diagSummaryText, readDiagSummary, readWidgetSnapshot } from "./utils/widget_sync"
 import type { WidgetRiskSource, WidgetSnapshot } from "./utils/widget_sync"
 
 export interface WidgetProps {
@@ -36,6 +36,8 @@ export interface WidgetProps {
   accessType: string
   vpnStatus: string
   widgetSize: { width: number; height: number }
+  /** 最近一次解鎖檢測摘要（僅大型小工具顯示） */
+  diagText?: string
   mapImage?: any
   mapSize?: { width: number; height: number }
 }
@@ -384,6 +386,8 @@ function DashboardWidget(props: WidgetProps & { layout: Layout }): VirtualNode {
               <DataRow icon="network" label="IP" value={displayIP} width={layout.leftWidth} />
               <DataRow icon="building.2" label="ASN" value={asn} width={layout.leftWidth} />
               <DataRow icon="antenna.radiowaves.left.and.right" label="ISP" value={info.isp || "未知網路"} width={layout.leftWidth} />
+              {props.diagText
+                ? <DataRow icon="play.tv" label="解鎖" value={props.diagText} width={layout.leftWidth} /> : null}
             </VStack>
             <Spacer />
             {props.riskValue != null && props.riskValue > 0
@@ -588,6 +592,9 @@ async function getWidgetProps(): Promise<WidgetProps> {
     }
   }
 
+  // 摘要來自頁面的網路診斷；小工具本身不另外發出解鎖檢測請求。
+  const diag = layout.large ? readDiagSummary() : null
+
   return {
     ipInfo,
     riskValue,
@@ -595,6 +602,7 @@ async function getWidgetProps(): Promise<WidgetProps> {
     accessType,
     vpnStatus,
     widgetSize,
+    diagText: diag ? diagSummaryText(diag) : undefined,
     mapImage,
     mapSize,
   }

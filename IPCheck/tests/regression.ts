@@ -8,6 +8,11 @@ import { detectionTime, locationDetails, networkDetails } from "../utils/details
 import { activeRiskFlags, hasKnownRiskFlags, shouldShowRiskScale } from "../utils/flags"
 import { buildWidgetSnapshot, parseWidgetSnapshot } from "../utils/widget_sync"
 import { hasCoordinates } from "../utils/map"
+import { classifyInterfaces, isHttp3, latencyLabel, natLabel, parseTrace,
+  GLOBAL_LATENCY_URLS, TAIWAN_LATENCY_URLS, QUIC_TRACE_URLS } from "../utils/diagnose"
+import { SERVICES, countUsable, judgeChatGPT, judgeNetflix, judgeReach, makeService, mergeService,
+  netflixRegion, parseBahamut, parseYoutube, pendingServices, regionCode } from "../utils/unlock"
+import { buildDiagSummary, diagSummaryText, parseDiagSummary } from "../utils/widget_sync"
 import type { IPInfo } from "../utils/ip"
 
 const failures: string[] = []
@@ -186,6 +191,64 @@ async function run() {
   check("WebRTC 異址警示", () => assessWebRTC(rtc, [{ source: "測試", ip: "1.1.1.1", location: "" }]).tone === "warning")
   check("WebRTC 無對照不判定安全", () => assessWebRTC(rtc, []).tone === "neutral")
   check("手動查詢不做 WebRTC", () => assessWebRTC(rtc, [], false, true).label === "不適用")
+
+  // ── 網路診斷 ──
+  const trace = parseTrace("fl=1\nip=8.8.8.8\nloc=TW\nhttp=http/3\nbroken\n=x\n")
+  check("trace 解析", () => trace.loc === "TW" && trace.http === "http/3" && trace.ip === "8.8.8.8" && !("broken" in trace))
+  check("HTTP/3 判定", () => isHttp3("http/3") && isHttp3("h3") && !isHttp3("http/2") && !isHttp3(""))
+  check("NAT：CGNAT", () => natLabel("100.72.1.9", "1.1.1.1") === "電信級 NAT（CGNAT）")
+  check("NAT：私有位址", () => natLabel("192.168.1.20", "1.1.1.1") === "NAT（私有位址）" && natLabel("172.20.0.4", "") === "NAT（私有位址）")
+  check("NAT：公網同址", () => natLabel("8.8.8.8", "8.8.8.8") === "公網位址（無 NAT）" && natLabel("8.8.8.8", "1.1.1.1") === "公網位址")
+  check("NAT：無效輸入", () => natLabel("", "1.1.1.1") === "未知" && natLabel("fe80::1", "1.1.1.1") === "未知" && natLabel("172.32.0.1", "") === "公網位址")
+  const wifi = classifyInterfaces({
+    lo0: [{ address: "127.0.0.1", family: "IPv4", isInternal: true }],
+    en0: [{ address: "fe80::1%en0", family: "IPv6" }, { address: "192.168.1.20", family: "IPv4" }, { address: "2001:b011::5", family: "IPv6" }],
+    utun3: [{ address: "10.8.0.2", family: "IPv4" }],
+    pdp_ip0: [{ address: "10.20.30.40", family: "IPv4" }],
+  })
+  check("介面：Wi-Fi 優先並識別 VPN / IPv6", () => wifi.type === "wifi" && wifi.ip === "192.168.1.20" && wifi.vpn && wifi.ipv6)
+  const cell = classifyInterfaces({ pdp_ip0: [{ address: "100.72.1.9" }, { address: "fe80::2" }] })
+  check("介面：行動網路且連結本地 IPv6 不算", () => cell.type === "cellular" && !cell.ipv6 && !cell.vpn)
+  check("介面：空清單", () => classifyInterfaces({}).type === "unknown" && classifyInterfaces({}).ip === "")
+  check("延遲文字", () => latencyLabel(41.6) === "42 ms" && latencyLabel(null) === "無回應" && latencyLabel(NaN) === "無回應")
+
+  // ── 解鎖檢測 ──
+  check("地區代碼正規化", () => regionCode(" tw ") === "TW" && regionCode("TWN") === "" && regionCode(null) === "")
+  check("Netflix 地區路徑", () => netflixRegion("https://www.netflix.com/tw/title/81280792") === "TW"
+    && netflixRegion("https://www.netflix.com/title/81280792") === "US"
+    && netflixRegion("https://www.netflix.com/jp-en/title/1") === "JP")
+  check("Netflix 完整片庫", () => judgeNetflix({ kind: "region", region: "TW" }, { kind: "error" }).state === "ok")
+  check("Netflix 僅自製", () => {
+    const result = judgeNetflix({ kind: "missing" }, { kind: "region", region: "JP" })
+    return result.state === "warn" && result.region === "JP"
+  })
+  check("Netflix 未開放 / 失敗", () => judgeNetflix({ kind: "blocked" }, { kind: "error" }).state === "no"
+    && judgeNetflix({ kind: "missing" }, { kind: "missing" }).state === "no"
+    && judgeNetflix({ kind: "error" }, { kind: "region", region: "US" }).state === "na"
+    && judgeNetflix({ kind: "missing" }, { kind: "error" }).state === "na")
+  check("YouTube Premium 地區", () => parseYoutube(200, '{"countryCode":"TW"}').region === "TW"
+    && parseYoutube(200, "Premium is not available in your country").state === "no"
+    && parseYoutube(200, "<html></html>").region === "US" && parseYoutube(503, "").state === "na")
+  check("ChatGPT 支援地區", () => judgeChatGPT("tw", "ok").state === "ok" && judgeChatGPT("TW", "blocked").state === "warn"
+    && judgeChatGPT("TW", "error").state === "warn" && judgeChatGPT("HK", "ok").state === "no" && judgeChatGPT("", "ok").state === "no")
+  check("動畫瘋判定", () => parseBahamut(200, '{"animeSn":37783}').region === "TW"
+    && parseBahamut(200, '{"error":{"code":1011}}').state === "no" && parseBahamut(0, "").state === "na" && parseBahamut(503, '{"error":1}').state === "na")
+  check("連線檢測判定", () => judgeReach("claude", 403, "TW").state === "ok" && judgeReach("gemini", 200, "tw").region === "TW"
+    && judgeReach("copilot", 451, "").state === "no" && judgeReach("grok", 502, "").state === "na" && judgeReach("spotify", 0, "").state === "no")
+  const pending = pendingServices()
+  check("服務清單 6 + 6", () => countUsable(pending, "media").total === 6 && countUsable(pending, "ai").total === 6 && countUsable(pending, "ai").ok === 0)
+  const merged = mergeService(mergeService(pending, makeService("netflix", "warn", "JP", "")), makeService("claude", "ok", "TW", ""))
+  check("逐項合併與統計", () => countUsable(merged, "media").ok === 1 && countUsable(merged, "ai").ok === 1 && merged.length === 12)
+  const BLOCKED_HOSTS = /(\.cn$|baidu|qq\.com|ipip\.net|3322\.net|miui|vivo|bilibili|deepseek|tiktok|douyin|aliyun|tencent|163\.com|weibo)/i
+  check("探測點不含中國來源", () => [...GLOBAL_LATENCY_URLS, ...TAIWAN_LATENCY_URLS, ...QUIC_TRACE_URLS]
+    .every(url => !BLOCKED_HOSTS.test(new URL(url).hostname))
+    && SERVICES.every(item => !/deepseek|tiktok/i.test(item.id + item.name)))
+  const summary = buildDiagSummary(merged, 41.6)
+  check("診斷摘要", () => diagSummaryText(summary) === "串流 1/6 · AI 1/6 · 42 ms"
+    && diagSummaryText(buildDiagSummary(merged, null)) === "串流 1/6 · AI 1/6")
+  check("診斷摘要解析", () => parseDiagSummary(JSON.parse(JSON.stringify(summary)))?.aiOk === 1
+    && parseDiagSummary({ ...summary, mediaOk: 9 }) === null && parseDiagSummary({ ...summary, version: 2 }) === null
+    && parseDiagSummary(null) === null)
 
   try {
     await withTimeout(new Promise<never>(() => {}), 15, "測試逾時")

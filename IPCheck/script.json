@@ -1,7 +1,7 @@
 {
   "icon" : "antenna.radiowaves.left.and.right",
   "entry" : "index.tsx",
-  "description" : "推薦使用這個版本* IP Health Check — Check IP health and quality.\n* Custom IP Lookup — Enter any IP address for analysis.\n* Fast & Lightweight — Simple, efficient, and easy to use.",
+  "description" : "IP 檢測：出口 IP、多來源位置對照、代理／風險評分、WebRTC 洩漏檢查，並整合網路診斷（延遲、NAT、HTTP/3）與串流／AI 服務解鎖檢測。",
   "localizedNames" : {
     "es" : "",
     "pt" : "",
