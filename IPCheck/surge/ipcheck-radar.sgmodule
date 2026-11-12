@@ -1,0 +1,22 @@
+#!name=IPCheck 網路診斷
+#!desc=定時診斷出口 IP、純淨度、延遲、HTTP/3、串流與 AI 服務可用性，並推送摘要通知。搭配 Scripting 的 IPCheck 使用。
+
+# ---------- 使用說明 ----------
+# 1. 在 Surge 以網址安裝本模組：
+#    https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.sgmodule
+# 2. 第一次執行：Surge → 腳本 → 長按 ipcheck-manual → 執行，確認有收到通知。
+# 3. 參數寫在 argument，用 & 連接：
+#      POLICY=策略名稱    最高優先，所有檢測強制走該策略
+#      LMT=策略群組名稱   串流專用（POLICY 為空時生效）
+#      AI=策略群組名稱    AI 服務專用（POLICY 為空時生效）
+#      YS=1              通知中遮蔽 IP（123.123.*.*）
+#      XY=VLESS          手動指定協定（不填則由節點名稱推斷）
+#      NOTIFY=0          關閉通知
+#      DEBUG=1           輸出詳細記錄
+
+[Script]
+# 每 30 分鐘自動診斷一次
+ipcheck = type=cron, cronexp="*/30 * * * *", timeout=60, wake-system=true, script-path=https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.js, argument="YS=1&NOTIFY=1"
+
+# 手動觸發（長按腳本執行／捷徑）
+ipcheck-manual = type=generic, timeout=60, script-path=https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.js, argument="YS=1&NOTIFY=1&DEBUG=1"

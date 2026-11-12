@@ -4,6 +4,15 @@
 
 ## 未發布 - 2026-11-12
 
+### 整合 Surge
+
+- 頁面新增「Surge」區：填入 HTTP API 的 x-key 後顯示出站模式、目前節點、協定與策略群組；x-key 只存在本機 Storage，以 `X-Key` 標頭送往本機 Surge，不寫入 repo。
+- 目前節點優先取最近請求中實際承載流量的策略；沒有經節點的請求時，改以 `/v1/policy_groups/select` 查各群組目前的選擇往下解析，查不到就明確顯示讀不到，不猜測。
+- 解鎖檢測完成後讀取 `/v1/requests/recent`，在每項服務旁標出實際經過的策略（節點名稱、直連或被規則攔截）。
+- 新增 `surge/ipcheck-radar.sgmodule` 與 `surge/ipcheck-radar.js`：以 Surge 的 policy 參數分別檢測代理出口與直連出口，每 30 分鐘推送摘要通知，可用 `POLICY`／`LMT`／`AI` 指定策略。
+- Surge 腳本同樣移除中國來源：直連出口改用 ipify → icanhazip → AWS 與 ipwho.is，直連延遲改用台灣端點，DNS 與電信業者對照改為 HiNet、TWNIC Quad101、中華電信、台灣大哥大、遠傳等；未保留原本的 `SYNC` 快照上傳。
+- 驗證：回歸斷言增為 134 項（群組解析、節點判定、巢狀群組、服務策略對照、設定正規化、金鑰遮罩）；Surge 腳本以替身環境完整跑過一次，28 個請求中沒有中國網域。HTTP API 的端點與驗證方式已對照 Surge 官方手冊，但尚未連上真實的 Surge 執行。
+
 ### 整合網路診斷與解鎖檢測
 
 - 併入「IP-Media 流媒體解鎖檢測」（iam-Kristen/Scripting）與「網路診斷雷達」（ByteValley/NetTool）的檢測邏輯，全部改寫為繁體中文（台灣用語）並沿用本頁的連續面板樣式；只在檢測目前出口時顯示，手動查詢 IP 時隱藏。

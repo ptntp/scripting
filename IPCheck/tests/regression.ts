@@ -13,6 +13,8 @@ import { classifyInterfaces, isHttp3, latencyLabel, natLabel, parseTrace,
 import { SERVICES, countUsable, judgeChatGPT, judgeNetflix, judgeReach, makeService, mergeService,
   netflixRegion, parseBahamut, parseYoutube, pendingServices, regionCode } from "../utils/unlock"
 import { buildDiagSummary, diagSummaryText, parseDiagSummary } from "../utils/widget_sync"
+import { maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseSurgeSettings, policyLabel,
+  protocolFromName, resolveSurgeInfo } from "../utils/surge"
 import type { IPInfo } from "../utils/ip"
 
 const failures: string[] = []
@@ -249,6 +251,51 @@ async function run() {
   check("診斷摘要解析", () => parseDiagSummary(JSON.parse(JSON.stringify(summary)))?.aiOk === 1
     && parseDiagSummary({ ...summary, mediaOk: 9 }) === null && parseDiagSummary({ ...summary, version: 2 }) === null
     && parseDiagSummary(null) === null)
+
+  // ── Surge HTTP API ──
+  const groupsData = {
+    "AI": [{ name: "節點選擇", typeDescription: "Select Group" }, { name: "JP02", typeDescription: "Shadowsocks" }],
+    "節點選擇": [{ name: "TW01 Trojan", typeDescription: "Trojan" }, { name: "TW01 Trojan", typeDescription: "Trojan" }, { name: "JP02", typeDescription: "Shadowsocks" }],
+  }
+  const recentData = { requests: [
+    { id: 1, remoteHost: "www.netflix.com:443", policyName: "TW01 Trojan" },
+    { id: 2, remoteHost: "claude.ai:443", policyName: "JP02" },
+    { id: 3, remoteHost: "claude.ai:443", policyName: "QUIC-BLOCK" },
+    { id: 4, URL: "https://open.spotify.com/", policyName: "DIRECT" },
+    { id: 5, remoteHost: "ani.gamer.com.tw:443", policyName: "TW01 Trojan" },
+    { id: 6, remoteHost: "notnetflix.com:443", policyName: "REJECT" },
+    { id: 7, remoteHost: "example.com:443", policyName: "TW01 Trojan" },
+  ] }
+  const parsedGroups = parsePolicyGroups(groupsData)
+  check("Surge 群組解析", () => parsedGroups.order.length === 2 && parsedGroups.members.get("JP02")?.group === "AI"
+    && parsedGroups.groups.get("節點選擇")?.length === 2 && parsePolicyGroups(null).groups.size === 0)
+  const busy = resolveSurgeInfo({ mode: "rule" }, groupsData, recentData)
+  check("Surge 以最近請求判定節點", () => busy.status === "ok" && busy.info?.node === "TW01 Trojan"
+    && busy.info.protocol === "Trojan" && busy.info.policy === "節點選擇" && busy.info.mode === "規則分流")
+  const idle = { requests: [{ id: 1, policyName: "DIRECT" }] }
+  const chained = resolveSurgeInfo({ mode: "proxy" }, groupsData, idle, { "節點選擇": "JP02", "AI": "節點選擇" })
+  check("Surge 無請求時依群組選擇", () => chained.info?.node === "JP02" && chained.info.policy === "節點選擇"
+    && chained.info.protocol === "SS" && chained.info.mode === "全域代理")
+  const nested = resolveSurgeInfo({ mode: "rule" }, { "AI": groupsData["AI"], "其他": groupsData["節點選擇"] }, idle, { "AI": "其他", "其他": "TW01 Trojan" })
+  check("Surge 巢狀群組往下解析", () => nested.info?.node === "TW01 Trojan")
+  check("Surge 無選擇資料不猜測", () => resolveSurgeInfo({ mode: "rule" }, groupsData, idle).status === "error"
+    && resolveSurgeInfo({ mode: "rule" }, groupsData, idle, { "節點選擇": "節點選擇" }).status === "error")
+  check("Surge 直連與空資料", () => resolveSurgeInfo({ mode: "direct" }, null, null).info?.node === "直連出口"
+    && resolveSurgeInfo({ mode: "rule" }, {}, []).status === "error")
+  const matched = matchServicePolicies(recentData)
+  check("Surge 服務策略對照", () => matched.netflix === "TW01 Trojan" && matched.claude === "JP02"
+    && matched.spotify === "DIRECT" && matched.bahamut === "TW01 Trojan" && matched.youtube === undefined)
+  check("Surge 策略文字", () => policyLabel("DIRECT") === "直連" && policyLabel("REJECT-DROP") === "被規則攔截"
+    && policyLabel("TW01") === "經 TW01" && policyLabel(undefined) === "")
+  check("Surge 協定辨識", () => normalizeProtocol("Shadowsocks") === "SS" && normalizeProtocol("HTTPS") === "HTTPS"
+    && normalizeProtocol("") === "" && protocolFromName("TW01-Reality") === "Reality" && protocolFromName("HTTP Lab") === "")
+  check("Surge 設定正規化", () => {
+    const fallback = parseSurgeSettings({ key: " abc ", host: "bad host/", port: 70000 })
+    const custom = parseSurgeSettings({ key: "k", host: "192.168.1.2", port: 6170 })
+    return fallback.key === "abc" && fallback.host === "127.0.0.1" && fallback.port === 6171
+      && custom.host === "192.168.1.2" && custom.port === 6170 && parseSurgeSettings(null).key === ""
+  })
+  check("Surge 金鑰遮罩", () => maskKey("") === "未設定" && maskKey("abcd") === "••••" && maskKey("secret-key") === "se••••ey")
 
   try {
     await withTimeout(new Promise<never>(() => {}), 15, "測試逾時")
