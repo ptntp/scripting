@@ -2,6 +2,29 @@
 
 本文件記錄 IP檢測 的主要版本更新。
 
+## 未發布 - 2026-11-12
+
+### 整合網路診斷與解鎖檢測
+
+- 併入「IP-Media 流媒體解鎖檢測」（iam-Kristen/Scripting）與「網路診斷雷達」（ByteValley/NetTool）的檢測邏輯，全部改寫為繁體中文（台灣用語）並沿用本頁的連續面板樣式；只在檢測目前出口時顯示，手動查詢 IP 時隱藏。
+- 新增「網路診斷」區：連線類型（Wi-Fi／行動網路）、本機位址（隨隱私模式遮罩）、NAT 推估、IPv6、國際延遲、台灣延遲、HTTP/3（QUIC）。
+- 新增「串流解鎖」區：YouTube Premium、Netflix（完整片庫／僅自製）、Disney+、巴哈姆特動畫瘋會判斷地區與可觀看範圍；Spotify、Prime Video 確認可連線。
+- 新增「AI 服務」區：ChatGPT 比對支援地區與 App 限制；Claude、Gemini、Copilot、Grok、Perplexity 確認可連線，Cloudflare 站點另以 `/cdn-cgi/trace` 顯示該服務實際看到的出口地區。
+- 大型小工具新增一行解鎖摘要（串流 n/6 · AI n/6 · 國際延遲），資料來自頁面最近 24 小時內的檢測，小工具本身不另外發出請求。
+
+### 移除中國來源
+
+- 直連延遲原本使用的 `connect.rom.miui.com`、`wifi.vivo.com.cn`、`www.baidu.com`、`www.qq.com` 全部移除，改為「台灣延遲」：HiNet、中華電信、TWNIC、台灣大學。
+- 本地出口查詢 `myip.ipip.net`、`ip.3322.net` 移除；出口位址沿用既有的 ipify → icanhazip → AWS 探針，不另外查詢。
+- 服務清單移除 DeepSeek 與 TikTok，改為 Microsoft Copilot 與巴哈姆特動畫瘋；電信業者簡稱對照（中國移動／聯通／電信／廣電、阿里雲、騰訊雲）與「中國大陸」預設歸屬一併移除。
+- 未併入原雷達的 Surge 模組、Surge HTTP API 設定與快照同步，也未加入國旗與服務圖示圖檔。
+
+### 驗證與限制
+
+- 回歸斷言由 99 項增為 123 項（trace 解析、NAT 與介面分類、Netflix／YouTube／ChatGPT／動畫瘋判定、連線檢測、摘要解析、探測點不含中國網域），以 Node 搭配 Scripting 模組替身執行通過；三個入口檔通過語法與匯入打包檢查。
+- 本次未在實機執行：新區塊的版面、各服務實際回應格式與台灣延遲端點的可用性尚待裝置上確認。動畫瘋檢測沿用公開的 token 介面流程，若該介面調整會顯示「檢測失敗」而非誤判。
+- 連線檢測把 HTTP 5xx 以下視為可連線（403 可能只是防機器人驗證），不代表帳號可在當地註冊或付費。
+
 ## 未發布 - 2026-11-07
 
 ### 介面改為繁體中文（台灣用語）

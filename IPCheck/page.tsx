@@ -10,7 +10,11 @@ import { lookupAddress, validIPAddress } from "./utils/lookup"
 import type { LookupResult } from "./utils/lookup"
 import { accessTypeLabel, detectionTime, locationDetails, networkDetails } from "./utils/details"
 import { activeRiskFlags, shouldShowRiskScale } from "./utils/flags"
-import { buildWidgetSnapshot, saveWidgetSnapshot } from "./utils/widget_sync"
+import { buildDiagSummary, buildWidgetSnapshot, saveDiagSummary, saveWidgetSnapshot } from "./utils/widget_sync"
+import { latencyLabel, localNetworkLabel, natLabel, runDiagnostics } from "./utils/diagnose"
+import type { DiagReport } from "./utils/diagnose"
+import { PENDING_DETAIL, checkServices, countUsable, mergeService, pendingServices, stateLabel } from "./utils/unlock"
+import type { ServiceGroup, ServiceResult, ServiceState } from "./utils/unlock"
 import { fetchGeoReport, sameIP, withTimeout } from "./utils/geo"
 import type { ExitObservation, GeoReport, GeoRow } from "./utils/geo"
 import { fetchIPPure } from "./utils/ippure"
@@ -34,11 +38,16 @@ type PageState = {
   pureLoading: boolean
   rtc: WebRTCReport | null
   rtcLoading: boolean
+  diag: DiagReport | null
+  diagLoading: boolean
+  services: ServiceResult[]
+  servicesLoading: boolean
   updatedAt: string
 }
 const EMPTY: PageState = {
   loading: true, error: null, ip: "", source: "", manual: false,
-  result: null, geo: null, pure: null, pureLoading: true, rtc: null, rtcLoading: true, updatedAt: "",
+  result: null, geo: null, pure: null, pureLoading: true, rtc: null, rtcLoading: true,
+  diag: null, diagLoading: true, services: [], servicesLoading: true, updatedAt: "",
 }
 const GEO_SOURCES = ["Cloudflare", "IP2Location", "DB-IP", "MaxMind", "IPInfo.io", "GeoJS"]
 const TITLE_BORDER = gradient("linear", {
@@ -376,6 +385,68 @@ function ExitRows({ state, privacy }: { state: PageState; privacy: boolean }) {
   </>
 }
 
+function stateTone(state: ServiceState): Color {
+  return state === "ok" ? ACCENT.green : state === "warn" ? ACCENT.orange
+    : state === "soon" ? ACCENT.blue : state === "no" ? ACCENT.red : ACCENT.violet
+}
+
+export function ServiceRows({ services, group, loading }: {
+  services: ServiceResult[]; group: ServiceGroup; loading: boolean
+}) {
+  return <>
+    {services.filter(item => item.group === group).map(item => {
+      const pending = loading && item.detail === PENDING_DETAIL
+      const label = pending ? "檢測中" : item.region && item.state !== "no"
+        ? `${item.region} ${stateLabel(item.state)}` : stateLabel(item.state)
+      return <Row key={item.id} label={item.name}>
+        <HStack spacing={8} alignment="center" frame={{ maxWidth: "infinity", alignment: "leading" }}>
+          <Tag text={label} color={pending ? ACCENT.violet : stateTone(item.state)} />
+          {!pending && item.detail ? <Text font={11} foregroundStyle="secondaryLabel"
+            lineLimit={2} fixedSize={{ horizontal: false, vertical: true }}
+            contentTransition="opacity">{item.detail}</Text> : null}
+        </HStack>
+      </Row>
+    })}
+  </>
+}
+
+function unlockHint(services: ServiceResult[], group: ServiceGroup, loading: boolean): string {
+  if (loading) return "檢測中…"
+  const { ok, total } = countUsable(services, group)
+  return `${ok}/${total} 可用`
+}
+
+export function DiagnosticsRows({ report, loading, exitIP, privacy }: {
+  report: DiagReport | null; loading: boolean; exitIP: string; privacy: boolean
+}) {
+  if (!report) {
+    return <HStack spacing={8} padding={{ vertical: 10 }}>
+      {loading ? <ProgressView controlSize="small" /> : null}
+      <Text font={12} foregroundStyle="secondaryLabel">{loading ? "正在量測延遲與協定…" : "本次未完成網路診斷"}</Text>
+    </HStack>
+  }
+  const local = report.local
+  const quic = report.quic
+  return <>
+    <Row label="連線類型" value={localNetworkLabel(local.type) + (local.vpn ? " · 偵測到 VPN 介面" : "")} />
+    <Row label="本機位址" value={local.ip ? formatIPAddress(local.ip, privacy) : "未取得"} mono />
+    <Row label="NAT" value={natLabel(local.ip, exitIP)} />
+    <Row label="IPv6" value={local.ipv6 ? "已取得全球位址" : "未取得全球位址"} />
+    <Row label="國際延遲" value={latencyLabel(report.latency.global)} mono
+      color={report.latency.global == null ? ACCENT.orange : undefined} />
+    <Row label="台灣延遲" value={latencyLabel(report.latency.taiwan)} mono
+      color={report.latency.taiwan == null ? ACCENT.orange : undefined} />
+    <Row label="HTTP/3">
+      <HStack spacing={8} alignment="center" frame={{ maxWidth: "infinity", alignment: "leading" }}>
+        <Tag text={quic.h3 ? "QUIC 可用" : quic.reachable ? "未使用 QUIC" : "無法判定"}
+          color={quic.h3 ? ACCENT.green : quic.reachable ? ACCENT.orange : ACCENT.violet} />
+        {quic.protocol ? <Text font={11} fontDesign="monospaced" foregroundStyle="secondaryLabel">{quic.protocol}</Text> : null}
+      </HStack>
+    </Row>
+    <Note text="延遲為最快端點的完整請求時間（含 DNS 與 TLS 交握），國際取 Cloudflare / Google、台灣取 HiNet / 中華電信 / TWNIC / 台大。NAT 僅依位址類別推估。" />
+  </>
+}
+
 export default function IPPage({ initialAddress }: { initialAddress?: string }) {
   const dismiss = Navigation.useDismiss()
   const [privacy, setPrivacy] = useState(getPrivacyMode())
@@ -404,7 +475,10 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
     animate(() => {
       setCopied(false)
       setMapExpanded(false)
-      setState({ ...EMPTY, ip: address || "", manual, rtcLoading: !manual })
+      setState({
+        ...EMPTY, ip: address || "", manual, rtcLoading: !manual,
+        diagLoading: !manual, servicesLoading: !manual, services: manual ? [] : pendingServices(),
+      })
       setQueryError("")
       setSearchOpen(false)
     }, Animation.easeOut(0.28))
@@ -417,6 +491,22 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
     const rtcTask = manual ? Promise.resolve() : fetchWebRTC(() => run === request.current)
       .then(rtc => update({ rtc, rtcLoading: false }))
       .catch(() => update({ rtc: { status: "error", candidates: [], errors: [], note: "WebRTC 檢測失敗，請重試。" }, rtcLoading: false }))
+    // 網路診斷與解鎖檢測只針對本機目前連線，與 IP 歸屬查詢並行、互不阻塞。
+    let exitCountry = ""
+    if (!manual) {
+      const diagTask = runDiagnostics()
+        .then(diag => { update({ diag, diagLoading: false }); return diag })
+        .catch(() => { update({ diagLoading: false }); return null })
+      const servicesTask = checkServices(() => exitCountry, item => {
+        if (run === request.current) animate(() => setState(previous => ({ ...previous, services: mergeService(previous.services, item) })))
+      }).then(services => { update({ services, servicesLoading: false }); return services })
+        .catch(() => { update({ servicesLoading: false }); return null })
+      void Promise.all([diagTask, servicesTask]).then(([diag, services]) => {
+        if (run !== request.current || !services) return
+        saveDiagSummary(buildDiagSummary(services, diag?.latency.global))
+        scheduleWidgetReload()
+      }).catch(error => console.log("[IP檢測] 診斷摘要寫入失敗", String(error)))
+    }
     try {
       if (!manual) {
         const probe = await withTimeout(fetchExitProbe(), 7000)
@@ -428,6 +518,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       update({ ip, source })
       const lookupTask = lookupAddress(ip, true)
         .then(result => {
+          exitCountry = result.info?.countryCode || ""
           update({ result, error: result.info ? null : "歸屬查詢暫不可用，已保留同位址風險資料" })
           return result
         })
@@ -629,6 +720,20 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
           <Band title="洩露檢測" icon="network" hint="WebRTC · 出口對照" order={6}>
             <ExitRows state={state} privacy={privacy} />
           </Band>
+
+          {!state.manual ? <>
+            <Band title="網路診斷" icon="waveform.path.ecg" hint="延遲 · NAT · QUIC" shaded order={7}>
+              <DiagnosticsRows report={state.diag} loading={state.diagLoading} exitIP={state.ip} privacy={privacy} />
+            </Band>
+            <Band title="串流解鎖" icon="play.tv" hint={unlockHint(state.services, "media", state.servicesLoading)} order={8}>
+              <ServiceRows services={state.services} group="media" loading={state.servicesLoading} />
+              <Note text="YouTube、Netflix、Disney+、動畫瘋會判斷地區與可觀看範圍；Spotify、Prime Video 僅確認可連線。" />
+            </Band>
+            <Band title="AI 服務" icon="sparkles" hint={unlockHint(state.services, "ai", state.servicesLoading)} shaded order={9}>
+              <ServiceRows services={state.services} group="ai" loading={state.servicesLoading} />
+              <Note text="ChatGPT 會比對支援地區與 App 限制；其餘僅確認可連線，地區為該服務實際看到的出口，不代表帳號可在當地註冊或付費。" />
+            </Band>
+          </> : null}
         </VStack>
         <HStack spacing={5} padding={{ top: 13 }} foregroundStyle="secondaryLabel">
           <Image systemName="arrow.down" font={9} />
