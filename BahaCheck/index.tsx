@@ -1,4 +1,4 @@
-// App 頁面：設定帳號（只存在本機 Keychain）、查看今日狀態、手動簽到、預覽小工具。
+// App 頁面：設定帳號（只存在本機 Keychain）、查看今日狀態、手動簽到或全部執行、預覽小工具。
 import {
   Button,
   HStack,
@@ -11,12 +11,13 @@ import {
   Spacer,
   Text,
   TextField,
+  VStack,
   Widget,
   useEffect,
   useState,
 } from "scripting"
+import type { DayState, Extra } from "./src/baha"
 import {
-  DayState,
   clearAll,
   getCredentials,
   getSavedAccount,
@@ -28,10 +29,23 @@ import {
   totp,
   totpRemaining,
 } from "./src/baha"
+import type { Tone } from "./src/extras"
+import { describeExtra, runAll, todayExtras } from "./src/extras"
 
 const GREEN = "#2EB872"
 const ORANGE = "#FF8A00"
 const RED = "#FF5A5F"
+const TONE: Record<Tone, string> = { ok: GREEN, muted: "secondaryLabel", warn: ORANGE, bad: RED }
+
+function ExtraRow({ title, extra, now }: { title: string; extra?: Extra; now: number }) {
+  const { text, tone } = describeExtra(extra, now)
+  return (
+    <VStack alignment="leading" spacing={2}>
+      <Row label={title} value={text} color={TONE[tone]} />
+      {extra?.detail ? <Text font="caption" foregroundStyle="secondaryLabel">{extra.detail}</Text> : null}
+    </VStack>
+  )
+}
 
 function Row({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
@@ -70,13 +84,27 @@ function App() {
   const [now, setNow] = useState(Date.now())
 
   // 每秒更新驗證碼預覽
+  // 每秒更新驗證碼預覽與廣告等待狀態
   useEffect(() => {
-    if (!account.hasTotp) return
+    if (!account.hasTotp && busy !== "all") return
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [account.hasTotp])
+  }, [account.hasTotp, busy])
 
   const configured = account.uid !== "" && account.hasPassword
+
+  async function runEverything() {
+    if (busy) return
+    setBusy("all")
+    setNotice("")
+    try {
+      const next = await runAll({ onProgress: (s) => { setState(s); Widget.reloadAll() } })
+      setState(next)
+      Widget.reloadAll()
+    } finally {
+      setBusy("")
+    }
+  }
 
   async function run(label: string, signIn: boolean) {
     if (busy) return
@@ -129,6 +157,7 @@ function App() {
   }
 
   const status = statusRow(state)
+  const extras = todayExtras(state, now)
   const creds = account.hasTotp ? getCredentials() : null
   const code = creds?.totp ? totp(creds.totp, now) : ""
 
@@ -160,6 +189,21 @@ function App() {
         </Section>
 
         <Section
+          header={<Text>公會／動畫瘋／廣告</Text>}
+          footer={<Text>這三項只顯示在中尺寸小工具，點中尺寸小工具即可全部執行。廣告雙倍需要等約 30 秒；動畫瘋答案取自每日公布答案的小屋文章，不保證正確。</Text>}
+        >
+          <ExtraRow title="公會簽到" extra={extras.guild} now={now} />
+          <ExtraRow title="動畫瘋答題" extra={extras.quiz} now={now} />
+          <ExtraRow title="廣告雙倍" extra={extras.ads} now={now} />
+          <Button
+            title={busy === "all" ? "執行中…（廣告約 30 秒）" : "全部執行"}
+            systemImage="bolt"
+            disabled={!configured || !!busy}
+            action={runEverything}
+          />
+        </Section>
+
+        <Section
           header={<Text>巴哈姆特帳號</Text>}
           footer={<Text>帳號、密碼與兩步驟驗證金鑰只存在這支 iPhone 的 Keychain，不會上傳或寫進 GitHub。密碼與金鑰欄位留空代表沿用已儲存的值。</Text>}
         >
@@ -173,8 +217,9 @@ function App() {
           {account.hasTotp ? <Button title="移除兩步驟驗證金鑰" role="destructive" action={removeTotp} /> : null}
         </Section>
 
-        <Section header={<Text>小工具</Text>} footer={<Text>主畫面加入 Scripting 小型小工具並選擇本腳本。尚未簽到時點小工具即可簽到。</Text>}>
-          <Button title="預覽小工具" systemImage="square.grid.2x2" action={() => Widget.preview({ family: "systemSmall" })} />
+        <Section header={<Text>小工具</Text>} footer={<Text>主畫面加入 Scripting 小工具並選擇本腳本。小型只處理主站簽到；中型另外顯示公會、答題、廣告，點一下全部執行。</Text>}>
+          <Button title="預覽小型（主站簽到）" systemImage="square" action={() => Widget.preview({ family: "systemSmall" })} />
+          <Button title="預覽中型（含公會、答題、廣告）" systemImage="rectangle" action={() => Widget.preview({ family: "systemMedium" })} />
         </Section>
 
         <Section>
