@@ -18,16 +18,17 @@ declare const Storage: {
 const LOGIN_URL = "https://api.gamer.com.tw/mobile_app/user/v3/do_login.php"
 const CSRF_URL = "https://www.gamer.com.tw/ajax/get_csrf_token.php"
 const SIGNIN_URL = "https://www.gamer.com.tw/ajax/signin.php"
-const HOME = "https://www.gamer.com.tw/"
+export const HOME = "https://www.gamer.com.tw/"
 const UA = "Anime/2.13.9 (tw.com.gamer.anime;build:437;iOS 14.5.0) Alamofire/5.4.1"
 
 const K_UID = "baha_uid"
 const K_PWD = "baha_pwd"
 const K_TOTP = "baha_totp"
 const K_COOKIE = "baha_cookie"
+const K_AD_TOKEN = "baha_ad_token"
 const STATE_KEY = "baha_state_v1"
 
-const MIN = 60_000
+export const MIN = 60_000
 const TAIPEI_OFFSET = 8 * 3600_000
 const DAY = 24 * 3600_000
 
@@ -207,11 +208,11 @@ export function cookieValue(cookie: string, name: string): string {
   return ""
 }
 
-const hasSession = (cookie: string) => !!cookieValue(cookie, "BAHARUNE")
+export const hasSession = (cookie: string) => !!cookieValue(cookie, "BAHARUNE")
 
 // ── HTTP ─────────────────────────────────────────────────────
 
-type HttpResult = { status: number; text: string; cookie: string }
+export type HttpResult = { status: number; text: string; cookie: string }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
   let timer: any
@@ -221,8 +222,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Error)
   ]).finally(() => clearTimeout(timer))
 }
 
-async function http(url: string, init: {
+export async function http(url: string, init: {
   method?: "GET" | "POST"; body?: string; cookie?: string; referer?: string; timeout?: number
+  headers?: Record<string, string>
 } = {}): Promise<HttpResult> {
   const seconds = init.timeout ?? 15
   const headers: Record<string, string> = {
@@ -233,6 +235,7 @@ async function http(url: string, init: {
   if (init.body !== undefined) headers["Content-Type"] = "application/x-www-form-urlencoded"
   if (init.cookie) headers.Cookie = init.cookie
   if (init.referer) headers.Referer = init.referer
+  if (init.headers) Object.assign(headers, init.headers)
 
   let response: any
   let text: string
@@ -254,17 +257,17 @@ async function http(url: string, init: {
   return { status: Number(response.status) || 0, text: String(text ?? ""), cookie: mergeCookies(fromHeader, fromList) }
 }
 
-function parseJSON(text: string): any {
+export function parseJSON(text: string): any {
   try { return JSON.parse(text) } catch (_) { return null }
 }
 
-function apiMessage(json: any): string {
+export function apiMessage(json: any): string {
   if (!json || typeof json !== "object") return ""
   const message = json.error?.message ?? json.message ?? json.msg
   return typeof message === "string" ? message.trim() : ""
 }
 
-function assertLoggedIn(json: any, status: number): void {
+export function assertLoggedIn(json: any, status: number): void {
   const error = json?.error
   if (status === 401 || error?.code === 401 || error?.status === "NO_LOGIN") {
     throw new BahaError("NO_LOGIN", "登入狀態失效")
@@ -276,7 +279,7 @@ const toDays = (value: unknown) => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ── 巴哈 API ──────────────────────────────────────────────────
 
@@ -312,21 +315,29 @@ export async function fetchStatus(cookie: string): Promise<{ signed: boolean; da
   throw new BahaError("API", apiMessage(json) || `查詢簽到狀態失敗（HTTP ${res.status}）`)
 }
 
+/** 取得 CSRF 令牌；回傳的 cookie 已含對應的 ckBahamutCsrfToken。 */
+export async function fetchCsrfToken(cookie: string): Promise<{ token: string; cookie: string }> {
+  const res = await http(`${CSRF_URL}?_=${Date.now()}`, { cookie, referer: HOME })
+  assertLoggedIn(parseJSON(res.text), res.status)
+  const token = res.text.trim()
+  if (!token || token.length > 256 || /[\s<>{}"]/.test(token)) {
+    throw new BahaError("API", `取得簽到令牌失敗（HTTP ${res.status}）`)
+  }
+  let jar = mergeCookies(cookie, res.cookie)
+  // 令牌對應的 cookie 若沒被帶回來，就照網頁的規則自己補上（令牌前 16 碼）。
+  if (!cookieValue(res.cookie, "ckBahamutCsrfToken")) {
+    jar = mergeCookies(jar, `ckBahamutCsrfToken=${token.slice(0, 16)}`)
+  }
+  return { token, cookie: jar }
+}
+
 /** 取得 CSRF 令牌後簽到（action=1）。已簽過會回傳 already。 */
 export async function signIn(cookie: string): Promise<{ already: boolean; days: number; cookie: string }> {
   let jar = cookie
   for (let attempt = 0; attempt < 2; attempt++) {
-    const tokenRes = await http(`${CSRF_URL}?_=${Date.now()}`, { cookie: jar, referer: HOME })
-    assertLoggedIn(parseJSON(tokenRes.text), tokenRes.status)
-    const token = tokenRes.text.trim()
-    if (!token || token.length > 256 || /[\s<>{}"]/.test(token)) {
-      throw new BahaError("API", `取得簽到令牌失敗（HTTP ${tokenRes.status}）`)
-    }
-    jar = mergeCookies(jar, tokenRes.cookie)
-    // 令牌對應的 cookie 若沒被帶回來，就照網頁的規則自己補上（令牌前 16 碼）。
-    if (!cookieValue(tokenRes.cookie, "ckBahamutCsrfToken")) {
-      jar = mergeCookies(jar, `ckBahamutCsrfToken=${token.slice(0, 16)}`)
-    }
+    const csrf = await fetchCsrfToken(jar)
+    const token = csrf.token
+    jar = csrf.cookie
 
     const res = await http(SIGNIN_URL, {
       method: "POST", body: `action=1&token=${encodeURIComponent(token)}`, cookie: jar, referer: HOME,
@@ -392,7 +403,9 @@ export function saveCredentials(input: { uid: string; pwd?: string; totp?: strin
 
 /** 只清掉登入 cookie 與今日狀態（下次會重新登入）。 */
 export function clearSession(): void {
-  try { Keychain.remove(K_COOKIE) } catch (_) {}
+  for (const key of [K_COOKIE, K_AD_TOKEN]) {
+    try { Keychain.remove(key) } catch (_) {}
+  }
   try { Storage.remove(STATE_KEY) } catch (_) {}
 }
 
@@ -418,6 +431,58 @@ function saveCookie(cookie: string): void {
   try { Keychain.set(K_COOKIE, clean) } catch (_) {}
 }
 
+/** 廣告雙倍：開始與領取要用同一組令牌，中途被系統中斷時下次接著領。 */
+export function getAdToken(): string {
+  return keychainGet(K_AD_TOKEN)
+}
+
+export function setAdToken(token: string): void {
+  try {
+    if (token) Keychain.set(K_AD_TOKEN, token)
+    else Keychain.remove(K_AD_TOKEN)
+  } catch (_) {}
+}
+
+// ── 每日狀態（存在 Storage，小工具與 App 共用）──────────────────────
+
+/**
+ * 其他項目（公會、動畫瘋答題、廣告雙倍）的結果。
+ * done 完成、miss 今日機會已用掉（答錯）、skip 不適用（未加入公會）：今天不用再執行。
+ * wait 稍後再試（答案未公布）、fail 失敗、running 廣告領取中：點擊後會再執行。
+ */
+export type ExtraState = "done" | "miss" | "skip" | "wait" | "fail" | "running"
+export type Extra = {
+  state: ExtraState
+  /** 小工具顯示的短字 */
+  text: string
+  /** App 內顯示的詳細原因 */
+  detail?: string
+  at: number
+  /** 廣告開始觀看的時間 */
+  startedAt?: number
+}
+
+const EXTRA_STATES: ExtraState[] = ["done", "miss", "skip", "wait", "fail", "running"]
+
+export function makeExtra(state: ExtraState, text: string, detail?: string, now: number = Date.now()): Extra {
+  const extra: Extra = { state, text, at: now }
+  if (detail && detail !== text) extra.detail = detail
+  return extra
+}
+
+/** 今天不需要再執行 */
+export function isFinal(extra: Extra | undefined): boolean {
+  return !!extra && (extra.state === "done" || extra.state === "miss" || extra.state === "skip")
+}
+
+function parseExtra(value: any): Extra | undefined {
+  if (!value || typeof value !== "object" || !EXTRA_STATES.includes(value.state) || typeof value.text !== "string") return undefined
+  const extra: Extra = { state: value.state, text: value.text, at: Number(value.at) || 0 }
+  if (typeof value.detail === "string" && value.detail) extra.detail = value.detail
+  if (Number(value.startedAt) > 0) extra.startedAt = Number(value.startedAt)
+  return extra
+}
+
 export type DayState = {
   /** 台灣日期 YYYY-MM-DD */
   date: string
@@ -430,6 +495,9 @@ export type DayState = {
   /** 最後一次檢查失敗的原因 */
   error?: string
   errorCode?: ErrorCode
+  guild?: Extra
+  quiz?: Extra
+  ads?: Extra
 }
 
 export function getState(): DayState | null {
@@ -437,22 +505,39 @@ export function getState(): DayState | null {
     const raw = Storage.get<any>(STATE_KEY)
     const value = typeof raw === "string" ? parseJSON(raw) : raw
     if (!value || typeof value !== "object" || typeof value.date !== "string") return null
-    return {
+    const state: DayState = {
       date: value.date,
       signed: value.signed === true,
       days: toDays(value.days),
       checkedAt: Number(value.checkedAt) || 0,
-      nickname: typeof value.nickname === "string" ? value.nickname : undefined,
-      error: typeof value.error === "string" && value.error ? value.error : undefined,
-      errorCode: typeof value.errorCode === "string" ? value.errorCode as ErrorCode : undefined,
     }
+    if (typeof value.nickname === "string" && value.nickname) state.nickname = value.nickname
+    if (typeof value.error === "string" && value.error) state.error = value.error
+    if (typeof value.errorCode === "string") state.errorCode = value.errorCode as ErrorCode
+    for (const key of ["guild", "quiz", "ads"] as const) {
+      const extra = parseExtra(value[key])
+      if (extra) state[key] = extra
+    }
+    return state
   } catch (_) {
     return null
   }
 }
 
-function saveState(state: DayState): void {
-  try { Storage.set(STATE_KEY, JSON.stringify(state)) } catch (_) {}
+/**
+ * 合併寫入今天的狀態（寫入前重新讀一次，避免 App、小工具、按鈕同時執行時互相覆蓋）。
+ * 換日時只沿用暱稱。值為 undefined 的欄位代表清除。
+ */
+export function patchState(patch: Partial<DayState>, now: number = Date.now()): DayState {
+  const today = taipeiDate(now)
+  const current = getState()
+  const base: DayState = current && current.date === today
+    ? current
+    : { date: today, signed: false, days: 0, checkedAt: 0, ...(current?.nickname ? { nickname: current.nickname } : {}) }
+  const next: any = { ...base, ...patch, date: today }
+  for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key]
+  try { Storage.set(STATE_KEY, JSON.stringify(next)) } catch (_) {}
+  return next as DayState
 }
 
 /**
@@ -480,67 +565,101 @@ export function widgetStateOf(state: DayState | null, configured: boolean, now: 
   return { kind: "unsigned" }
 }
 
+// ── 登入工作階段 ──────────────────────────────────────────────
+
+export function requireCredentials(): Credentials {
+  const creds = getCredentials()
+  if (!creds) throw new BahaError("NO_CREDENTIALS", "尚未設定帳號密碼")
+  return creds
+}
+
 /**
- * 查詢今日狀態；signIn 為 true 且尚未簽到時會順便簽到。
- * 沒有登入 cookie 或 cookie 失效時自動用 Keychain 裡的帳密重新登入一次。
+ * 沿用 Keychain 裡的登入 cookie；沒有或失效（NO_LOGIN）時用帳密重新登入，每次執行最多登入一次。
+ * 每個請求後都把伺服器更新的 cookie 存回 Keychain。
+ */
+export class Session {
+  creds: Credentials
+  cookie: string
+  nickname: string | undefined
+  loggedIn = false
+
+  constructor(creds: Credentials) {
+    this.creds = creds
+    this.cookie = loadCookie()
+  }
+
+  async relogin(): Promise<void> {
+    if (this.loggedIn) throw new BahaError("NO_LOGIN", "登入狀態失效")
+    this.loggedIn = true
+    const result = await login(this.creds)
+    this.nickname = result.nickname
+    this.update(result.cookie)
+  }
+
+  update(cookie: string): void {
+    this.cookie = cookie
+    saveCookie(cookie)
+  }
+
+  async run<R extends { cookie: string }>(task: (cookie: string) => Promise<R>): Promise<R> {
+    if (!hasSession(this.cookie)) await this.relogin()
+    let result: R
+    try {
+      result = await task(this.cookie)
+    } catch (error) {
+      if (this.loggedIn || !(error instanceof BahaError) || error.code !== "NO_LOGIN") throw error
+      await this.relogin()
+      result = await task(this.cookie)
+    }
+    this.update(result.cookie)
+    return result
+  }
+}
+
+/** 主站簽到：查詢狀態，需要時簽到。 */
+export function mainStep(session: Session, signInIfNeeded: boolean): Promise<{ signed: boolean; days: number; cookie: string }> {
+  return session.run(async (cookie) => {
+    const status = await fetchStatus(cookie)
+    if (status.signed || !signInIfNeeded) return status
+    const result = await signIn(status.cookie)
+    if (!result.already && result.days > 0) return { signed: true, days: result.days, cookie: result.cookie }
+    const after = await fetchStatus(result.cookie)
+    return { ...after, signed: after.signed || result.already }
+  })
+}
+
+export function errorPatch(error: unknown): { error: string; errorCode: ErrorCode } {
+  const code: ErrorCode = error instanceof BahaError ? error.code : "API"
+  const message = code === "NO_LOGIN" ? "登入失效，請確認帳號密碼" : messageOf(error)
+  return { error: message, errorCode: code }
+}
+
+export function mainPatch(session: Session, result: { signed: boolean; days: number }): Partial<DayState> {
+  return {
+    signed: result.signed,
+    days: result.days,
+    checkedAt: Date.now(),
+    error: undefined,
+    errorCode: undefined,
+    ...(session.nickname ? { nickname: session.nickname } : {}),
+  }
+}
+
+/**
+ * 只處理主站簽到：查詢今日狀態；signIn 為 true 且尚未簽到時會順便簽到。
  * 不會丟出例外：失敗原因寫在回傳狀態的 error。
  */
 export async function runCheck(signInIfNeeded: boolean): Promise<DayState> {
-  const now = Date.now()
-  const today = taipeiDate(now)
-  const prev = getState()
-  const sameDay = prev && prev.date === today ? prev : null
-  let nickname = prev?.nickname
-  let state: DayState
-
+  let session: Session | null = null
   try {
-    const creds = getCredentials()
-    if (!creds) throw new BahaError("NO_CREDENTIALS", "尚未設定帳號密碼")
-
-    const relogin = async () => {
-      const result = await login(creds)
-      nickname = result.nickname
-      saveCookie(result.cookie)
-      return result.cookie
-    }
-
-    const task = async (cookie: string) => {
-      const status = await fetchStatus(cookie)
-      if (status.signed || !signInIfNeeded) return status
-      const result = await signIn(status.cookie)
-      if (!result.already && result.days > 0) return { signed: true, days: result.days, cookie: result.cookie }
-      const after = await fetchStatus(result.cookie)
-      return { ...after, signed: after.signed || result.already }
-    }
-
-    let cookie = loadCookie()
-    let fresh = false
-    if (!hasSession(cookie)) {
-      cookie = await relogin()
-      fresh = true
-    }
-    let result: { signed: boolean; days: number; cookie: string }
-    try {
-      result = await task(cookie)
-    } catch (error) {
-      if (fresh || !(error instanceof BahaError) || error.code !== "NO_LOGIN") throw error
-      result = await task(await relogin())
-    }
-    saveCookie(result.cookie)
-    state = { date: today, signed: result.signed, days: result.days, checkedAt: Date.now(), nickname }
+    session = new Session(requireCredentials())
+    const result = await mainStep(session, signInIfNeeded)
+    return patchState(mainPatch(session, result))
   } catch (error) {
-    const code: ErrorCode = error instanceof BahaError ? error.code : "API"
-    const message = code === "NO_LOGIN" ? "登入失效，請確認帳號密碼" : messageOf(error)
-    state = {
-      date: today,
-      signed: sameDay?.signed ?? false,
-      days: sameDay?.days ?? 0,
+    return patchState({
       checkedAt: Date.now(),
-      nickname,
-      error: message,
-      errorCode: code,
-    }
+      ...errorPatch(error),
+      ...(session?.nickname ? { nickname: session.nickname } : {}),
+    })
   }
-  saveState(state)
-  return state
 }
