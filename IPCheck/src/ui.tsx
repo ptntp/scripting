@@ -2,7 +2,8 @@
 // 深色模式保留暗灰配色，淺色模式切換為淺底和深色文字。
 import { Circle, HStack, Image, Path, Rectangle, Script, Spacer, Text, VStack, VirtualNode, Widget, ZStack, modifiers } from "scripting"
 import type { ServiceInfo, Snapshot } from "./types"
-import { agoLabel, flagOf, maskIP, widgetKind } from "./net"
+import { agoLabel, flagOf, maskIP, regionOfName, widgetKind } from "./net"
+import { testedDirect } from "./enrich"
 import type { Settings } from "./store"
 import { serviceStateText } from "./unlock"
 import { largeLayout } from "./layout"
@@ -127,7 +128,7 @@ function shortIsp(value: string): string {
 function shortProtocol(protocol: string): string {
   const text = String(protocol || "").trim()
   if (!text) return "—"
-  return text.length > 8 ? `${text.slice(0, 8)}` : text
+  return text.length > 10 ? `${text.slice(0, 9)}…` : text
 }
 
 /** 節點名裡常帶國旗/圖示，有的字型渲染成方框，顯示前清一下 */
@@ -563,6 +564,13 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
   const names = latencyNames(snapshot)
   const connected = local.net !== "未知網路"
   const proxyOk = Boolean(exit.ip)
+  // 有 Surge 節點時卡片顯示節點：旗幟取自節點名稱，副標顯示策略群組，避免和直連出口的業者、國旗混在一起。
+  const node = snapshot.surge?.node || ""
+  const nodeFlag = node ? regionOfName(node) : exit.cc || exit.country
+  const nodeSub = node && snapshot.surge?.policy ? `策略 ${prettyName(snapshot.surge.policy)}` : shortIsp(exit.isp)
+  const direct = testedDirect(snapshot)
+  const proxyTag = direct ? "檢測走直連" : proxyOk ? "連線正常" : "無出口"
+  const proxyTone = direct ? C.amber : proxyOk ? C.green : C.red
 
   const miniWidth = (inner - 6 * z) / 2
   const ring = Math.max(0, Math.min(100, exit.purity))
@@ -693,9 +701,9 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
               <Spacer />
               <Tag
                 z={z}
-                text={proxyOk ? "連線正常" : "無出口"}
-                color={proxyOk ? C.green : C.red}
-                bg={proxyOk ? C.greenTint : C.redTint}
+                text={proxyTag}
+                color={proxyTone}
+                bg={direct ? C.subtleSurface : proxyOk ? C.greenTint : C.redTint}
               />
             </HStack>
 
@@ -703,13 +711,13 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
               <SurgeBadge size={26 * z} />
               <VStack alignment="leading" spacing={1 * z} frame={{ maxWidth: "infinity", alignment: "leading" }}>
                 <HStack spacing={2 * z}>
-                  <CountryFlag value={exit.cc || exit.country} size={7 * z} />
+                  <CountryFlag value={nodeFlag} size={7 * z} />
                   <Text font={8.4 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.6}>
-                    {prettyName(snapshot.surge?.node || exit.city || exit.country) || "未識別"}
+                    {prettyName(node || exit.city || exit.country) || "未識別"}
                   </Text>
                 </HStack>
                 <Text font={6.4 * z} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
-                  {shortIsp(exit.isp)}
+                  {nodeSub}
                 </Text>
               </VStack>
 
