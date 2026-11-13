@@ -18,7 +18,7 @@ import {
 } from "scripting"
 import IPPage from "./page"
 import { diagnose } from "./src/diagnose"
-import { enrich } from "./src/enrich"
+import { enrich, testedDirect } from "./src/enrich"
 import { agoLabel, flagOf, maskIP } from "./src/net"
 import { clearSnapshot, getSettings, getSnapshot, saveSettings, saveSnapshot } from "./src/store"
 import type { Settings } from "./src/store"
@@ -145,6 +145,9 @@ function RadarPage() {
             <Text>
               {snapshot
                 ? `${fromSurge ? "Surge 快照" : "本機自測"} · ${agoLabel(snapshot.ts)}`
+                  + (testedDirect(snapshot)
+                    ? `。這次檢測的請求在 Surge 都走直連，以上是直連出口，不是目前節點 ${snapshot.surge?.node || ""}；要測節點，請讓 Scripting 的流量走代理，或改用 Surge 模組的結果。`
+                    : "")
                 : "還沒有資料，點下方「立即診斷」開始"}
             </Text>
           }

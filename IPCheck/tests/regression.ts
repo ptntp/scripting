@@ -13,7 +13,7 @@ import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixR
   regionCode, serviceStateText, toServiceInfo } from "../src/unlock"
 import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseRemoteSnapshot,
   policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
-import { applySurge, relabel } from "../src/enrich"
+import { applySurge, relabel, testedDirect } from "../src/enrich"
 import { normalizeSettings } from "../src/store"
 import { largeLayout } from "../src/layout"
 import type { Snapshot } from "../src/types"
@@ -307,6 +307,10 @@ async function run() {
   const applied = applySurge(snap, { mode: "規則分流", policy: "節點選擇", node: "JP02", protocol: "SS" }, { netflix: "JP02", gemini: "DIRECT" })
   check("套用 Surge 狀態", () => applied.surge?.node === "JP02" && applied.media[0].policy === "JP02" && applied.media[0].cc === "JP"
     && applied.ai[0].cc === "直連" && snap.media[0].policy === "" && applySurge(applied, null, null).surge?.node === "JP02")
+  const direct = (policies: string[], node = "JPWS"): Snapshot => ({ ...snap, surge: { mode: "規則分流", policy: "JP", node, protocol: "WireGuard" },
+    media: policies.map((policy, i) => ({ id: `m${i}`, name: "x", ok: true, cc: "", policy })), ai: [] })
+  check("檢測走直連判定", () => testedDirect(direct(["DIRECT", "DIRECT", ""])) && !testedDirect(direct(["DIRECT", "JPWS"]))
+    && !testedDirect(direct(["", ""])) && !testedDirect(direct(["DIRECT"], "直連出口")) && !testedDirect({ ...snap, surge: undefined }))
   const remote = parseRemoteSnapshot(JSON.parse(JSON.stringify({ ...snap, src: "surge", exit: { ...exitTW, purity: 180 }, media: [{ id: "netflix", name: "Netflix", ok: true, policy: "串流" }, { bad: 1 }] })))
   check("外部快照驗證", () => remote?.src === "surge" && remote.exit.purity === 100 && remote.media.length === 1 && remote.media[0].cc === ""
     && parseRemoteSnapshot({ ts: 1 }) === null && parseRemoteSnapshot({ exit: {}, local: {}, ts: "x" }) === null && parseRemoteSnapshot(null) === null)

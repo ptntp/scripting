@@ -48,6 +48,18 @@ export function applySurge(
   }
 }
 
+/**
+ * 本機自測的服務請求在 Surge 請求紀錄裡全部走 DIRECT：
+ * 代表這次量到的出口、純淨度與解鎖結果都是直連線路，而不是目前節點。
+ * Surge 本身設為全部直連時不算。純函式，方便離線測試。
+ */
+export function testedDirect(snapshot: Snapshot): boolean {
+  const node = snapshot.surge?.node || ""
+  if (!node || node === "直連出口" || /^DIRECT$/i.test(node)) return false
+  const tagged = [...(snapshot.media || []), ...(snapshot.ai || [])].filter((item) => item.policy)
+  return tagged.length > 0 && tagged.every((item) => /^DIRECT$/i.test(item.policy))
+}
+
 /** 沒設定 x-key 或連不上 Surge 時原樣回傳。 */
 export async function enrich(snapshot: Snapshot | null, settings: Settings): Promise<Snapshot | null> {
   if (!snapshot || !settings.surgeKey) return snapshot
