@@ -1,6 +1,7 @@
 // File: utils/ip.ts
 // 取得 IP 資訊並計算風險值
 import { fetch, Device } from "scripting"
+import { getSettings, saveSettings } from "../src/store"
 import { toTraditional } from "./s2t"
 
 // ip-api 沒有繁體選項，地名以 zh-CN 取得後再由 toTraditional 轉為繁體。
@@ -36,14 +37,13 @@ export interface IPInfo {
   zip?: string;
 }
 
-export const PRIVACY_MODE_KEY = "ip-detection.privacy-mode"
-
+/** 與雷達主頁、小工具共用同一個「遮蔽 IP」設定。 */
 export function getPrivacyMode(): boolean {
-  return Storage.get<boolean>(PRIVACY_MODE_KEY, { shared: true }) ?? true
+  return getSettings().maskIP
 }
 
 export function setPrivacyMode(enabled: boolean): boolean {
-  return Storage.set(PRIVACY_MODE_KEY, enabled, { shared: true })
+  return saveSettings({ maskIP: enabled }).maskIP === enabled
 }
 
 function dottedIPv4ToGroups(value: string): string | null {

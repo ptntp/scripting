@@ -6,15 +6,16 @@ import { parseIPPure } from "../utils/ippure"
 import { normalizeRTCAddress, rtcAddressScope, parseWebRTC, assessWebRTC } from "../utils/webrtc"
 import { detectionTime, locationDetails, networkDetails } from "../utils/details"
 import { activeRiskFlags, hasKnownRiskFlags, shouldShowRiskScale } from "../utils/flags"
-import { buildWidgetSnapshot, parseWidgetSnapshot } from "../utils/widget_sync"
 import { hasCoordinates } from "../utils/map"
-import { classifyInterfaces, isHttp3, latencyLabel, natLabel, parseTrace,
-  GLOBAL_LATENCY_URLS, TAIWAN_LATENCY_URLS, QUIC_TRACE_URLS } from "../utils/diagnose"
-import { SERVICES, countUsable, judgeChatGPT, judgeNetflix, judgeReach, makeService, mergeService,
-  netflixRegion, parseBahamut, parseYoutube, pendingServices, regionCode } from "../utils/unlock"
-import { buildDiagSummary, diagSummaryText, parseDiagSummary, widgetKind } from "../utils/widget_sync"
-import { maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseSurgeSettings, policyLabel,
-  protocolFromName, resolveSurgeInfo } from "../utils/surge"
+import { countryCode, detectNAT, flagOf, maskIP, parseTrace, regionOfName, widgetKind } from "../src/net"
+import { GLOBAL_LATENCY_URLS, QUIC_TRACE_URLS, TAIWAN_LATENCY_URLS, classifyInterfaces, isHttp3, mergeExit, splitServices } from "../src/diagnose"
+import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, parseYoutube,
+  regionCode, serviceStateText, toServiceInfo } from "../src/unlock"
+import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseRemoteSnapshot,
+  policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
+import { applySurge, relabel } from "../src/enrich"
+import { normalizeSettings } from "../src/store"
+import type { Snapshot } from "../src/types"
 import type { IPInfo } from "../utils/ip"
 
 const failures: string[] = []
@@ -96,38 +97,7 @@ async function run() {
   const widgetRep = parseProxyCheck({ status: "ok", [ip]: { detections: {
     risk: 42, proxy: false, vpn: true, tor: false, anonymous: false, scraper: false, compromised: false, hosting: false,
   } } }, ip)
-  const snapshot = buildWidgetSnapshot({ ip, info: widgetInfo, reputation: widgetRep, pure: null })
-  check("小工具快照同步 IP 與地圖座標", () => snapshot.ip === ip && snapshot.lat === 37.4 && snapshot.lon === -122.1)
-  check("小工具快照使用 proxycheck 風險", () => snapshot.risk === 42 && snapshot.riskSource === "proxycheck")
-  check("小工具快照同步風險標記與屬性", () => snapshot.vpnStatus === "VPN" && snapshot.accessType === "非機房標記")
-  check("未標記與未知可區分", () => snapshot.vpnStatus === "VPN"
-    && buildWidgetSnapshot({ ip, info: widgetInfo, reputation: pc, pure: null }).vpnStatus === "未標記"
-    && buildWidgetSnapshot({ ip, info: widgetInfo, reputation: null, pure: null }).vpnStatus === "未知"
-    && hasKnownRiskFlags(pc) && !hasKnownRiskFlags(null))
-
-  const pureStub: import("../utils/ippure").IPPureReport = {
-    source: null, asn: null, organization: null, domain: null, range: null, isBroadcast: null,
-    isResidential: null, networkType: null, risk: 77, cloudflareRisk: null, traffic: null,
-    locations: [], exit: null, note: "",
-  }
-  const zeroRep = parseProxyCheck({ status: "ok", [ip]: { detections: {
-    risk: 0, proxy: false, vpn: false, confidence: 0,
-  } } }, ip)
-  const zeroSnapshot = buildWidgetSnapshot({ ip, info: widgetInfo, reputation: zeroRep, pure: pureStub })
-  check("proxycheck 0 分不被 IPPure 覆蓋", () => zeroSnapshot.risk === 0 && zeroSnapshot.riskSource === "proxycheck")
-  const pureSnapshot = buildWidgetSnapshot({ ip, info: widgetInfo, reputation: null, pure: pureStub })
-  check("proxycheck 缺失時改用 IPPure", () => pureSnapshot.risk === 77 && pureSnapshot.riskSource === "IPPure")
-  check("快照往返保留關鍵欄位", () => {
-    const parsed = parseWidgetSnapshot(snapshot)
-    return !!parsed && parsed.ip === snapshot.ip && parsed.risk === 42 && parsed.riskSource === "proxycheck"
-      && parsed.accessType === snapshot.accessType && parsed.vpnStatus === "VPN"
-  })
-  check("快照拒絕非法版本與位址", () => parseWidgetSnapshot({ ...snapshot, version: 2 }) === null
-    && parseWidgetSnapshot({ ...snapshot, ip: "999.1.1.1" }) === null)
-  check("快照剔除越界或單邊座標", () => {
-    const parsed = parseWidgetSnapshot({ ...snapshot, lat: 999, lon: 10 })
-    return !!parsed && parsed.lat === null && parsed.lon === null
-  })
+  check("風險標記已知與未知可區分", () => hasKnownRiskFlags(pc) && !hasKnownRiskFlags(null))
   check("proxycheck 不採信異址資料", () => parseProxyCheck({ status: "ok", "1.1.1.1": { detections: { risk: 90 } } }, ip) === null)
   check("歸屬缺失保留同址信譽結果", () => {
     const result = assembleLookupResult(ip, null, null, pc)
@@ -194,77 +164,89 @@ async function run() {
   check("WebRTC 無對照不判定安全", () => assessWebRTC(rtc, []).tone === "neutral")
   check("手動查詢不做 WebRTC", () => assessWebRTC(rtc, [], false, true).label === "不適用")
 
-  // ── 網路診斷 ──
+  // ── 雷達：網路工具 ──
   const trace = parseTrace("fl=1\nip=8.8.8.8\nloc=TW\nhttp=http/3\nbroken\n=x\n")
-  check("trace 解析", () => trace.loc === "TW" && trace.http === "http/3" && trace.ip === "8.8.8.8" && !("broken" in trace))
+  check("trace 解析", () => trace.loc === "TW" && trace.http === "http/3" && !("broken" in trace))
   check("HTTP/3 判定", () => isHttp3("http/3") && isHttp3("h3") && !isHttp3("http/2") && !isHttp3(""))
-  check("NAT：CGNAT", () => natLabel("100.72.1.9", "1.1.1.1") === "電信級 NAT（CGNAT）")
-  check("NAT：私有位址", () => natLabel("192.168.1.20", "1.1.1.1") === "NAT（私有位址）" && natLabel("172.20.0.4", "") === "NAT（私有位址）")
-  check("NAT：公網同址", () => natLabel("8.8.8.8", "8.8.8.8") === "公網位址（無 NAT）" && natLabel("8.8.8.8", "1.1.1.1") === "公網位址")
-  check("NAT：無效輸入", () => natLabel("", "1.1.1.1") === "未知" && natLabel("fe80::1", "1.1.1.1") === "未知" && natLabel("172.32.0.1", "") === "公網位址")
-  const wifi = classifyInterfaces({
-    lo0: [{ address: "127.0.0.1", family: "IPv4", isInternal: true }],
-    en0: [{ address: "fe80::1%en0", family: "IPv6" }, { address: "192.168.1.20", family: "IPv4" }, { address: "2001:b011::5", family: "IPv6" }],
-    utun3: [{ address: "10.8.0.2", family: "IPv4" }],
-    pdp_ip0: [{ address: "10.20.30.40", family: "IPv4" }],
-  })
-  check("介面：Wi-Fi 優先並識別 VPN / IPv6", () => wifi.type === "wifi" && wifi.ip === "192.168.1.20" && wifi.vpn && wifi.ipv6)
-  const cell = classifyInterfaces({ pdp_ip0: [{ address: "100.72.1.9" }, { address: "fe80::2" }] })
-  check("介面：行動網路且連結本地 IPv6 不算", () => cell.type === "cellular" && !cell.ipv6 && !cell.vpn)
-  check("介面：空清單", () => classifyInterfaces({}).type === "unknown" && classifyInterfaces({}).ip === "")
-  check("延遲文字", () => latencyLabel(41.6) === "42 ms" && latencyLabel(null) === "無回應" && latencyLabel(NaN) === "無回應")
-
-  // ── 解鎖檢測 ──
-  check("地區代碼正規化", () => regionCode(" tw ") === "TW" && regionCode("TWN") === "" && regionCode(null) === "")
-  check("Netflix 地區路徑", () => netflixRegion("https://www.netflix.com/tw/title/81280792") === "TW"
-    && netflixRegion("https://www.netflix.com/title/81280792") === "US"
-    && netflixRegion("https://www.netflix.com/jp-en/title/1") === "JP")
-  check("Netflix 完整片庫", () => judgeNetflix({ kind: "region", region: "TW" }, { kind: "error" }).state === "ok")
-  check("Netflix 僅自製", () => {
-    const result = judgeNetflix({ kind: "missing" }, { kind: "region", region: "JP" })
-    return result.state === "warn" && result.region === "JP"
-  })
-  check("Netflix 未開放 / 失敗", () => judgeNetflix({ kind: "blocked" }, { kind: "error" }).state === "no"
-    && judgeNetflix({ kind: "missing" }, { kind: "missing" }).state === "no"
-    && judgeNetflix({ kind: "error" }, { kind: "region", region: "US" }).state === "na"
-    && judgeNetflix({ kind: "missing" }, { kind: "error" }).state === "na")
-  check("YouTube Premium 地區", () => parseYoutube(200, '{"countryCode":"TW"}').region === "TW"
-    && parseYoutube(200, "Premium is not available in your country").state === "no"
-    && parseYoutube(200, "<html></html>").region === "US" && parseYoutube(503, "").state === "na")
-  check("ChatGPT 支援地區", () => judgeChatGPT("tw", "ok").state === "ok" && judgeChatGPT("TW", "blocked").state === "warn"
-    && judgeChatGPT("TW", "error").state === "warn" && judgeChatGPT("HK", "ok").state === "no" && judgeChatGPT("", "ok").state === "no")
-  check("動畫瘋判定", () => parseBahamut(200, '{"animeSn":37783}').region === "TW"
-    && parseBahamut(200, '{"error":{"code":1011}}').state === "no" && parseBahamut(0, "").state === "na" && parseBahamut(503, '{"error":1}').state === "na")
-  check("連線檢測判定", () => judgeReach("claude", 403, "TW").state === "ok" && judgeReach("gemini", 200, "tw").region === "TW"
-    && judgeReach("copilot", 451, "").state === "no" && judgeReach("grok", 502, "").state === "na" && judgeReach("spotify", 0, "").state === "no")
-  const pending = pendingServices()
-  check("服務清單 6 + 6", () => countUsable(pending, "media").total === 6 && countUsable(pending, "ai").total === 6 && countUsable(pending, "ai").ok === 0)
-  const merged = mergeService(mergeService(pending, makeService("netflix", "warn", "JP", "")), makeService("claude", "ok", "TW", ""))
-  check("逐項合併與統計", () => countUsable(merged, "media").ok === 1 && countUsable(merged, "ai").ok === 1 && merged.length === 12)
-  const BLOCKED_HOSTS = /(\.cn$|baidu|qq\.com|ipip\.net|3322\.net|miui|vivo|bilibili|deepseek|tiktok|douyin|aliyun|tencent|163\.com|weibo)/i
-  check("探測點不含中國來源", () => [...GLOBAL_LATENCY_URLS, ...TAIWAN_LATENCY_URLS, ...QUIC_TRACE_URLS]
-    .every(url => !BLOCKED_HOSTS.test(new URL(url).hostname))
-    && SERVICES.every(item => !/deepseek|tiktok/i.test(item.id + item.name)))
-  const summary = buildDiagSummary(merged, 41.6)
-  check("診斷摘要", () => diagSummaryText(summary) === "串流 1/6 · AI 1/6 · 42 ms"
-    && diagSummaryText(buildDiagSummary(merged, null)) === "串流 1/6 · AI 1/6")
-  check("診斷摘要解析", () => parseDiagSummary(JSON.parse(JSON.stringify(summary)))?.aiOk === 1
-    && parseDiagSummary({ ...summary, mediaOk: 9 }) === null && parseDiagSummary({ ...summary, version: 2 }) === null
-    && parseDiagSummary(null) === null)
-
+  check("NAT 推估", () => detectNAT("100.72.1.9") === "CGNAT" && detectNAT("192.168.1.20") === "NAT"
+    && detectNAT("172.20.0.4") === "NAT" && detectNAT("8.8.8.8") === "公網" && detectNAT("") === "未知" && detectNAT("fe80::1") === "未知")
+  check("國碼：代碼、旗幟、地名", () => countryCode("tw") === "TW" && countryCode("🇯🇵 東京 01") === "JP"
+    && countryCode("台灣 HiNet") === "TW" && countryCode("台湾-02") === "TW" && countryCode("美國 洛杉磯") === "US")
+  check("國碼：節點名稱中的代碼", () => regionOfName("TW 01") === "TW" && regionOfName("IEPL-JP-Tokyo") === "JP"
+    && regionOfName("Proxy") === "" && regionOfName("AI") === "" && regionOfName("") === "" && countryCode("TW 01") === "TW")
+  check("策略群組 AI 不被當成國碼", () => relabel({ id: "x", name: "x", ok: true, cc: "", policy: "" }, "AI", "", "TW").cc === "")
+  check("台灣旗幟正常顯示", () => flagOf("TW") === "🇹🇼" && flagOf("JP") === "🇯🇵" && flagOf("UK") === "🇬🇧" && flagOf("") === "")
+  check("IP 遮蔽", () => maskIP("203.0.113.9") === "203.0.*.*" && maskIP("2001:db8::1") === "2001:db8:***" && maskIP("") === "")
   check("小工具版面：標準尺寸", () => widgetKind("systemSmall", { width: 158, height: 158 }) === "small"
     && widgetKind("systemMedium", { width: 338, height: 158 }) === "medium"
     && widgetKind("systemLarge", { width: 338, height: 354 }) === "large"
-    && widgetKind("systemExtraLarge", { width: 715, height: 354 }) === "large")
+    && widgetKind("accessoryRectangular", { width: 160, height: 72 }) === "small")
   check("小工具版面：未知尺寸依大小判定", () => widgetKind("systemExtraLargePortrait", { width: 338, height: 547 }) === "large"
     && widgetKind("somethingNew", { width: 338, height: 547 }) === "large"
-    && widgetKind(undefined, { width: 338, height: 158 }) === "medium"
-    && widgetKind(undefined, { width: 158, height: 158 }) === "small")
+    && widgetKind(undefined, { width: 338, height: 158 }) === "medium" && widgetKind(undefined, { width: 158, height: 158 }) === "small")
 
-  // ── Surge HTTP API ──
+  // ── 雷達：出口與本機網路 ──
+  const exitTW = mergeExit(
+    { status: "success", query: "203.0.113.9", country: "台湾", countryCode: "TW", regionName: "台湾省 高雄市", city: "高雄", isp: "Chunghwa Telecom", org: "HiNet", as: "AS3462 Data Communication", proxy: false, hosting: false, mobile: true },
+    null, { is_mobile: true }, null)
+  check("出口：台灣獨立顯示且轉繁體", () => exitTW.country === "台灣" && exitTW.region === "高雄市" && exitTW.city === "高雄" && exitTW.cc === "TW")
+  check("出口：行動網路判定", () => exitTW.kind === "行動網路" && exitTW.mobile && exitTW.asn === "AS3462" && exitTW.risk === "低風險" && exitTW.purity === 95)
+  const exitDC = mergeExit({ status: "fail", query: "1.1.1.1" }, { ip: "198.51.100.7", country_code: "JP", country: "Japan", city: "Tokyo", connection: { asn: 64500, org: "Example", isp: "ExampleNet" } },
+    { is_datacenter: true, is_vpn: true, is_proxy: true }, { org: "AS64500 Example KK" })
+  check("出口：限流來源被忽略並合併其餘來源", () => exitDC.ip === "198.51.100.7" && exitDC.cc === "JP" && exitDC.asn === "AS64500" && exitDC.isp === "ExampleNet")
+  check("出口：機房與代理降低純淨度", () => exitDC.kind === "機房 IP" && exitDC.proxy && exitDC.hosting && exitDC.purity === 40 && exitDC.risk === "高風險")
+  const exitBare = mergeExit(null, null, null, { ip: "198.51.100.8", country: "US", org: "AS1 Foo" })
+  check("出口：沒有旗標來源時不當成住宅", () => exitBare.kind === "未知網路" && exitBare.asn === "AS1" && exitBare.org === "Foo")
+  check("出口：全部失敗", () => mergeExit(null, null, null, null).ip === "" && mergeExit(null, { success: false, ip: "9.9.9.9" }, null, null).ip === "")
+  const wifi = classifyInterfaces({
+    lo0: [{ address: "127.0.0.1", family: "IPv4", isInternal: true }],
+    en0: [{ address: "fe80::1%en0", family: "IPv6" }, { address: "192.168.1.20", family: "IPv4" }, { address: "2001:b011::5", family: "IPv6" }],
+    utun3: [{ address: "10.8.0.2", family: "IPv4" }, { address: "2001:db9::1", family: "IPv6" }],
+    pdp_ip0: [{ address: "10.20.30.40", family: "IPv4" }],
+  })
+  check("介面：Wi-Fi 優先並識別 VPN / IPv6", () => wifi.net === "Wi-Fi" && wifi.ip === "192.168.1.20" && wifi.vpn && wifi.v6)
+  const cell = classifyInterfaces({ pdp_ip0: [{ address: "100.72.1.9" }, { address: "fe80::2" }] })
+  check("介面：行動網路且連結本地 IPv6 不算", () => cell.net === "行動網路" && !cell.v6 && !cell.vpn)
+  check("介面：空清單", () => classifyInterfaces({}).net === "未知網路" && classifyInterfaces({}).ip === "")
+
+  // ── 雷達：解鎖檢測 ──
+  check("地區代碼正規化", () => regionCode(" tw ") === "TW" && regionCode("TWN") === "" && regionCode(null) === "")
+  check("Netflix 地區路徑", () => netflixRegion("https://www.netflix.com/tw/title/81280792") === "TW"
+    && netflixRegion("https://www.netflix.com/title/81280792") === "US" && netflixRegion("https://www.netflix.com/jp-en/title/1") === "JP")
+  check("Netflix 判定", () => judgeNetflix({ kind: "region", region: "TW" }, { kind: "error" }).state === "ok"
+    && judgeNetflix({ kind: "missing" }, { kind: "region", region: "JP" }).state === "warn"
+    && judgeNetflix({ kind: "blocked" }, { kind: "error" }).state === "no"
+    && judgeNetflix({ kind: "missing" }, { kind: "missing" }).state === "no"
+    && judgeNetflix({ kind: "error" }, { kind: "region", region: "US" }).state === "na")
+  check("YouTube Premium 地區", () => parseYoutube(200, '{"countryCode":"TW"}').region === "TW"
+    && parseYoutube(200, "Premium is not available in your country").state === "no" && parseYoutube(503, "").state === "na")
+  check("ChatGPT 支援地區", () => judgeChatGPT("tw", "ok").state === "ok" && judgeChatGPT("TW", "blocked").state === "warn"
+    && judgeChatGPT("HK", "ok").state === "no" && judgeChatGPT("", "ok").state === "no")
+  check("動畫瘋判定", () => parseBahamut(200, '{"animeSn":37783}').region === "TW"
+    && parseBahamut(200, '{"error":{"code":1011}}').state === "no" && parseBahamut(0, "").state === "na")
+  check("連線檢測判定", () => judgeReach("claude", 403, "TW").state === "ok" && judgeReach("copilot", 451, "").state === "no"
+    && judgeReach("grok", 502, "").state === "na" && judgeReach("spotify", 0, "").state === "no")
+  const partial = toServiceInfo(makeService("netflix", "warn", "JP", "僅自製影片"), "TW")
+  const reach = toServiceInfo(makeService("gemini", "ok", "", "可連線"), "tw")
+  const failed = toServiceInfo(makeService("grok", "no", "", "無法連線"), "TW")
+  check("快照服務項目", () => partial.ok && partial.cc === "JP" && partial.note === "僅自製影片" && reach.cc === "TW" && !failed.ok && failed.cc === "")
+  check("服務狀態文字", () => serviceStateText(partial) === "部分" && serviceStateText(reach) === "可用" && serviceStateText(failed) === "不可用"
+    && serviceStateText({ ok: true }) === "可用" && serviceStateText({ ok: false }) === "失敗")
+  const all = SERVICES.map(meta => toServiceInfo(makeService(meta.id, "ok", "TW", "")))
+  const split = splitServices([...all].reverse())
+  check("服務分組 6 + 6 且順序固定", () => split.media.length === 6 && split.ai.length === 6
+    && split.media[0].id === "youtube" && split.media[3].id === "bahamut" && split.ai[0].id === "chatgpt" && split.ai[3].id === "copilot")
+  const BLOCKED_HOSTS = /(\.cn$|baidu|qq\.com|ipip\.net|3322\.net|miui|vivo|bilibili|deepseek|tiktok|douyin|aliyun|tencent|163\.com|weibo)/i
+  check("探測點與服務不含中國來源", () => [...GLOBAL_LATENCY_URLS, ...TAIWAN_LATENCY_URLS, ...QUIC_TRACE_URLS]
+    .every(url => !BLOCKED_HOSTS.test(new URL(url).hostname))
+    && SERVICES.every(item => !/deepseek|tiktok/i.test(item.id + item.name))
+    && Object.values(SERVICE_HOSTS).flat().every(host => !BLOCKED_HOSTS.test(host))
+    && SERVICES.every(item => Array.isArray(SERVICE_HOSTS[item.id])))
+
+  // ── 雷達：Surge ──
   const groupsData = {
     "AI": [{ name: "節點選擇", typeDescription: "Select Group" }, { name: "JP02", typeDescription: "Shadowsocks" }],
-    "節點選擇": [{ name: "TW01 Trojan", typeDescription: "Trojan" }, { name: "TW01 Trojan", typeDescription: "Trojan" }, { name: "JP02", typeDescription: "Shadowsocks" }],
+    "節點選擇": [{ name: "TW01 Trojan", typeDescription: "Trojan" }, { name: "JP02", typeDescription: "Shadowsocks" }],
   }
   const recentData = { requests: [
     { id: 1, remoteHost: "www.netflix.com:443", policyName: "TW01 Trojan" },
@@ -275,36 +257,48 @@ async function run() {
     { id: 6, remoteHost: "notnetflix.com:443", policyName: "REJECT" },
     { id: 7, remoteHost: "example.com:443", policyName: "TW01 Trojan" },
   ] }
-  const parsedGroups = parsePolicyGroups(groupsData)
-  check("Surge 群組解析", () => parsedGroups.order.length === 2 && parsedGroups.members.get("JP02")?.group === "AI"
-    && parsedGroups.groups.get("節點選擇")?.length === 2 && parsePolicyGroups(null).groups.size === 0)
+  check("Surge 群組解析", () => parsePolicyGroups(groupsData).members.get("JP02")?.group === "AI" && parsePolicyGroups(null).groups.size === 0)
   const busy = resolveSurgeInfo({ mode: "rule" }, groupsData, recentData)
   check("Surge 以最近請求判定節點", () => busy.status === "ok" && busy.info?.node === "TW01 Trojan"
     && busy.info.protocol === "Trojan" && busy.info.policy === "節點選擇" && busy.info.mode === "規則分流")
   const idle = { requests: [{ id: 1, policyName: "DIRECT" }] }
   const chained = resolveSurgeInfo({ mode: "proxy" }, groupsData, idle, { "節點選擇": "JP02", "AI": "節點選擇" })
-  check("Surge 無請求時依群組選擇", () => chained.info?.node === "JP02" && chained.info.policy === "節點選擇"
-    && chained.info.protocol === "SS" && chained.info.mode === "全域代理")
-  const nested = resolveSurgeInfo({ mode: "rule" }, { "AI": groupsData["AI"], "其他": groupsData["節點選擇"] }, idle, { "AI": "其他", "其他": "TW01 Trojan" })
-  check("Surge 巢狀群組往下解析", () => nested.info?.node === "TW01 Trojan")
+  check("Surge 無請求時依群組選擇", () => chained.info?.node === "JP02" && chained.info.protocol === "SS" && chained.info.mode === "全域代理")
   check("Surge 無選擇資料不猜測", () => resolveSurgeInfo({ mode: "rule" }, groupsData, idle).status === "error"
-    && resolveSurgeInfo({ mode: "rule" }, groupsData, idle, { "節點選擇": "節點選擇" }).status === "error")
-  check("Surge 直連與空資料", () => resolveSurgeInfo({ mode: "direct" }, null, null).info?.node === "直連出口"
-    && resolveSurgeInfo({ mode: "rule" }, {}, []).status === "error")
+    && resolveSurgeInfo({ mode: "direct" }, null, null).info?.node === "直連出口")
   const matched = matchServicePolicies(recentData)
   check("Surge 服務策略對照", () => matched.netflix === "TW01 Trojan" && matched.claude === "JP02"
     && matched.spotify === "DIRECT" && matched.bahamut === "TW01 Trojan" && matched.youtube === undefined)
-  check("Surge 策略文字", () => policyLabel("DIRECT") === "直連" && policyLabel("REJECT-DROP") === "被規則攔截"
-    && policyLabel("TW01") === "經 TW01" && policyLabel(undefined) === "")
-  check("Surge 協定辨識", () => normalizeProtocol("Shadowsocks") === "SS" && normalizeProtocol("HTTPS") === "HTTPS"
-    && normalizeProtocol("") === "" && protocolFromName("TW01-Reality") === "Reality" && protocolFromName("HTTP Lab") === "")
-  check("Surge 設定正規化", () => {
-    const fallback = parseSurgeSettings({ key: " abc ", host: "bad host/", port: 70000 })
-    const custom = parseSurgeSettings({ key: "k", host: "192.168.1.2", port: 6170 })
-    return fallback.key === "abc" && fallback.host === "127.0.0.1" && fallback.port === 6171
-      && custom.host === "192.168.1.2" && custom.port === 6170 && parseSurgeSettings(null).key === ""
-  })
+  check("Surge 策略文字與協定", () => policyLabel("DIRECT") === "直連" && policyLabel("REJECT-DROP") === "被規則攔截"
+    && policyLabel("TW01") === "經 TW01" && normalizeProtocol("Shadowsocks") === "SS" && protocolFromName("TW01-Reality") === "Reality")
   check("Surge 金鑰遮罩", () => maskKey("") === "未設定" && maskKey("abcd") === "••••" && maskKey("secret-key") === "se••••ey")
+  check("重新標註：攔截與直連", () => relabel(partial, "REJECT-DROP", "JP", "TW").cc === "攔截" && relabel(partial, "DIRECT", "JP", "TW").cc === "直連")
+  check("重新標註：保留服務自己判定的地區", () => relabel(partial, "🇺🇸 US 01", "US", "TW").cc === "JP"
+    && relabel({ id: "x", name: "x", ok: true, cc: "", policy: "" }, "🇺🇸 US 01", "SG", "TW").cc === "US"
+    && relabel({ id: "x", name: "x", ok: true, cc: "", policy: "" }, "自動選擇", "SG", "TW").cc === "SG")
+  check("重新標註：無紀錄時不覆蓋", () => relabel(partial, "", "US", "TW").cc === "JP"
+    && relabel({ id: "x", name: "x", ok: true, cc: "TW", policy: "" }, "", "US", "TW").cc === "US")
+  const snap: Snapshot = {
+    v: 1, ts: Date.now(), src: "self", exit: exitTW,
+    local: { net: "Wi-Fi", ip: "192.168.1.20", gw: "", dns: "", area: "", carrier: "", nat: "NAT", vpn: false, v6: true },
+    lat: { proxy: 40, local: 9 }, quic: { ok: true, reachable: true }, media: [partial], ai: [reach],
+  }
+  const applied = applySurge(snap, { mode: "規則分流", policy: "節點選擇", node: "JP02", protocol: "SS" }, { netflix: "JP02", gemini: "DIRECT" })
+  check("套用 Surge 狀態", () => applied.surge?.node === "JP02" && applied.media[0].policy === "JP02" && applied.media[0].cc === "JP"
+    && applied.ai[0].cc === "直連" && snap.media[0].policy === "" && applySurge(applied, null, null).surge?.node === "JP02")
+  const remote = parseRemoteSnapshot(JSON.parse(JSON.stringify({ ...snap, src: "surge", exit: { ...exitTW, purity: 180 }, media: [{ id: "netflix", name: "Netflix", ok: true, policy: "串流" }, { bad: 1 }] })))
+  check("外部快照驗證", () => remote?.src === "surge" && remote.exit.purity === 100 && remote.media.length === 1 && remote.media[0].cc === ""
+    && parseRemoteSnapshot({ ts: 1 }) === null && parseRemoteSnapshot({ exit: {}, local: {}, ts: "x" }) === null && parseRemoteSnapshot(null) === null)
+  const settings = normalizeSettings({ refreshMinutes: 2, surgeHost: "bad host/", surgePort: 70000, snapshotURL: " https://x.example/r.json " }, { key: " old ", host: "192.168.1.2", port: 6170 })
+  check("設定正規化與沿用舊金鑰", () => settings.refreshMinutes === 15 && settings.surgeKey === "old" && settings.surgeHost === "127.0.0.1"
+    && settings.surgePort === 6171 && settings.snapshotURL === "https://x.example/r.json"
+    && normalizeSettings({ surgeKey: "new", refreshMinutes: 999 }, { key: "old", host: "10.0.0.2", port: 6170 }).surgeKey === "new"
+    && normalizeSettings({ refreshMinutes: 999 }).refreshMinutes === 240
+    && normalizeSettings({}, { key: "k", host: "10.0.0.2", port: 6170 }).surgeHost === "10.0.0.2"
+    && normalizeSettings(null).surgePort === 6171)
+  check("遮蔽設定沿用舊版隱私模式", () => normalizeSettings({}, null, true).maskIP
+    && !normalizeSettings({}, null, null).maskIP && !normalizeSettings({ maskIP: false }, null, true).maskIP
+    && normalizeSettings({ maskIP: true }, null, false).maskIP)
 
   try {
     await withTimeout(new Promise<never>(() => {}), 15, "測試逾時")

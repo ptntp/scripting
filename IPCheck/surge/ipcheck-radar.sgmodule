@@ -12,11 +12,12 @@
 #      YS=1              通知中遮蔽 IP（123.123.*.*）
 #      XY=VLESS          手動指定協定（不填則由節點名稱推斷）
 #      NOTIFY=0          關閉通知
+#      SYNC=https://...  把快照 POST 到你的網址（KV／Worker／NAS），再填到 IPCheck 的「Surge 快照網址」
 #      DEBUG=1           輸出詳細記錄
 
 [Script]
-# 每 30 分鐘自動診斷一次
-ipcheck = type=cron, cronexp="*/30 * * * *", timeout=60, wake-system=true, script-path=https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.js, argument="YS=1&NOTIFY=1"
+# 每 15 分鐘自動診斷一次
+ipcheck = type=cron, cronexp="*/15 * * * *", timeout=60, wake-system=true, script-path=https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.js, argument="YS=1&NOTIFY=1"
 
 # 手動觸發（長按腳本執行／捷徑）
 ipcheck-manual = type=generic, timeout=60, script-path=https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-radar.js, argument="YS=1&NOTIFY=1&DEBUG=1"

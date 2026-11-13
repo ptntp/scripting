@@ -12,10 +12,11 @@
  *   YS=1              輸出時遮蔽 IP（123.123.123.123 → 123.123.*.*）
  *   XY=VLESS          手動指定協定（不填則由節點名稱推斷）
  *   NOTIFY=0          關閉通知（預設會通知）
+ *   SYNC=https://...  把快照 POST 到該網址（任何可接收 JSON 的 KV／Worker／NAS），供小工具讀取
  *   DEBUG=1           輸出詳細記錄
  */
 
-const KEY_SNAPSHOT = "ipcheck.radar.snapshot.v1";
+const KEY_SNAPSHOT = "radar.snapshot.v1";
 const TITLE = "IPCheck 網路診斷";
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 
@@ -30,6 +31,7 @@ const AI = clean(ARG.AI);
 const MASK = clean(ARG.YS) === "1";
 const FORCE_PROTOCOL = clean(ARG.XY);
 const NOTIFY = clean(ARG.NOTIFY) !== "0";
+const SYNC = /^https?:\/\//i.test(clean(ARG.SYNC)) ? clean(ARG.SYNC) : "";
 const DEBUG = clean(ARG.DEBUG) === "1";
 
 // 國際常用的連線檢查端點（Cloudflare、Google）
@@ -135,20 +137,22 @@ const DNS_PROVIDERS = [
     local: {
       net: net.label, ip: displayIP(net.ip), gw: net.gw, dns: net.dnsLabel,
       exitIP: displayIP(directExit.ip), area: directExit.area, carrier: directExit.carrier,
-      nat: natLabel(net.ip, directExit.ip), vpn: net.vpn, v6: net.v6
+      nat: natLabel(net.ip), vpn: net.vpn, v6: net.v6
     },
-    lat: { proxy: proxyLat, direct: directLat },
+    lat: { proxy: proxyLat, local: directLat },
     quic: quic,
     media: media,
     ai: ai,
     surge: {
-      policy: surgeInfo.policy, node: surgeInfo.node,
+      mode: "", policy: surgeInfo.policy, node: surgeInfo.node,
       protocol: FORCE_PROTOCOL || surgeInfo.protocol
     },
     cost: Date.now() - startedAt
   };
 
-  $persistentStore.write(JSON.stringify(snapshot), KEY_SNAPSHOT);
+  const json = JSON.stringify(snapshot);
+  $persistentStore.write(json, KEY_SNAPSHOT);
+  if (SYNC) await pushSync(SYNC, json);
   if (NOTIFY) notify(snapshot);
   log("完成，耗時 " + snapshot.cost + "ms");
   $done();
@@ -417,6 +421,24 @@ async function getJSON(url, timeout, policy) {
   try { return JSON.parse(text); } catch (_) { return null; }
 }
 
+/** 快照內含出口 IP；只會送到你在 SYNC 指定的網址。 */
+function pushSync(url, body) {
+  return new Promise(function (resolve) {
+    try {
+      $httpClient.post({
+        url: url, timeout: 10, body: body,
+        headers: { "Content-Type": "application/json", "User-Agent": "IPCheck-Radar/1.0" }
+      }, function (error) {
+        log(error ? "同步失敗：" + error : "同步完成");
+        resolve();
+      });
+    } catch (error) {
+      log("同步錯誤：" + error);
+      resolve();
+    }
+  });
+}
+
 /* ---------------------------------------------------------------- */
 /* 通知與記錄                                                        */
 /* ---------------------------------------------------------------- */
@@ -426,7 +448,7 @@ function notify(snapshot) {
   const count = function (list) { return list.filter(function (item) { return item.ok; }).length; };
   const subtitle = [[exit.cc, exit.city].filter(Boolean).join(" "), exit.ip].filter(Boolean).join(" · ");
   const body = [
-    "代理 " + (snapshot.lat.proxy || "—") + "ms／直連 " + (snapshot.lat.direct || "—") + "ms／HTTP3 " + (snapshot.quic.ok ? "✓" : "✗"),
+    "代理 " + (snapshot.lat.proxy || "—") + "ms／直連 " + (snapshot.lat.local || "—") + "ms／HTTP3 " + (snapshot.quic.ok ? "✓" : "✗"),
     "純淨度 " + exit.purity + " · " + exit.risk + " · " + exit.kind,
     "串流 " + count(snapshot.media) + "/" + snapshot.media.length + " · AI " + count(snapshot.ai) + "/" + snapshot.ai.length
       + (snapshot.surge.node ? " · " + snapshot.surge.node : "")
@@ -524,13 +546,14 @@ function riskLevel(flags, score) {
   return "低風險";
 }
 
-/** 只依位址類別推估，無法取代 STUN 的 NAT 類型測試。 */
-function natLabel(localIP, exitIP) {
+/** 只依本機位址類別推估，無法取代 STUN 的 NAT 類型測試。標籤與小工具端一致。 */
+function natLabel(localIP) {
   const parts = parseIPv4(localIP);
   if (!parts) return "未知";
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return "電信級 NAT（CGNAT）";
-  if (isPrivateIPv4(localIP)) return "NAT（私有位址）";
-  return clean(localIP) === clean(exitIP) ? "公網位址（無 NAT）" : "公網位址";
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return "CGNAT";
+  if (isPrivateIPv4(localIP)) return "NAT";
+  if (parts[0] === 0 || parts[0] === 127 || parts[0] >= 224 || (parts[0] === 169 && parts[1] === 254)) return "未知";
+  return "公網";
 }
 
 function parseIPv4(ip) {
