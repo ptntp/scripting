@@ -15,6 +15,7 @@ import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parseP
   policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
 import { applySurge, relabel } from "../src/enrich"
 import { normalizeSettings } from "../src/store"
+import { largeLayout } from "../src/layout"
 import type { Snapshot } from "../src/types"
 import type { IPInfo } from "../utils/ip"
 
@@ -184,6 +185,26 @@ async function run() {
   check("小工具版面：未知尺寸依大小判定", () => widgetKind("systemExtraLargePortrait", { width: 338, height: 547 }) === "large"
     && widgetKind("somethingNew", { width: 338, height: 547 }) === "large"
     && widgetKind(undefined, { width: 338, height: 158 }) === "medium" && widgetKind(undefined, { width: 158, height: 158 }) === "small")
+
+  // ── 雷達：大型小工具縮放 ──
+  // 頂欄 50、內容上下留白 20、底部指標約 40（皆乘以 z），加上兩條分隔線。
+  const fits = (size: { width: number; height: number }) => {
+    const L = largeLayout(size)
+    const used = 70 * L.z + 40 * L.z + 1 + L.topH + L.gap + L.serviceH + (L.detailH > 0 ? L.gap + L.detailH : 0)
+    return used <= L.winH + 0.5 && L.cw > 0
+  }
+  const standard = largeLayout({ width: 338, height: 354 })
+  check("大型：標準尺寸維持原比例且不顯示詳情", () => standard.z === 1 && standard.detailH === 0 && standard.topH === 98)
+  const proMax = largeLayout({ width: 364, height: 382 })
+  check("大型：大螢幕略放大", () => proMax.z === 1.08 && proMax.detailH === 0)
+  const xl = largeLayout({ width: 377, height: 609 })
+  check("特大直式：字級跟寬度放大並填滿高度", () => xl.z === 1.12 && xl.detailRows === 5 && xl.detailZ > 1.1
+    && xl.detailH > 200 && xl.winH - (110 * xl.z + 1 + xl.topH + xl.gap * 2 + xl.serviceH + xl.detailH) < 8)
+  const tall = largeLayout({ width: 377, height: 900 })
+  check("特大直式：太高時詳情卡封頂、其餘給服務網格", () => tall.detailRows === 5 && tall.detailZ === 1.45 && tall.serviceH > 110 * tall.z)
+  check("大型：小螢幕縮小不超框", () => largeLayout({ width: 329, height: 345 }).z === 0.97)
+  check("各尺寸內容不超出視窗", () => [[338, 354], [364, 382], [377, 609], [377, 900], [329, 345], [715, 354], [364, 760]]
+    .every(([width, height]) => fits({ width, height })))
 
   // ── 雷達：出口與本機網路 ──
   const exitTW = mergeExit(

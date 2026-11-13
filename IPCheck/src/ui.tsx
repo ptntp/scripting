@@ -5,6 +5,8 @@ import type { ServiceInfo, Snapshot } from "./types"
 import { agoLabel, flagOf, maskIP, widgetKind } from "./net"
 import type { Settings } from "./store"
 import { serviceStateText } from "./unlock"
+import { largeLayout } from "./layout"
+import type { LargeLayout } from "./layout"
 
 export type Size = { width: number; height: number }
 
@@ -145,15 +147,15 @@ function prettyName(value: string): string {
 /* 原子元件                                                            */
 /* ------------------------------------------------------------------ */
 
-function Tag({ text, color = C.sub, bg = C.subtleSurface }: { text: string; color?: any; bg?: any }): VirtualNode {
+function Tag({ text, color = C.sub, bg = C.subtleSurface, z = 1 }: { text: string; color?: any; bg?: any; z?: number }): VirtualNode {
   return (
     <Text
-      font={6.5}
+      font={6.5 * z}
       fontWeight="semibold"
       foregroundStyle={color}
       lineLimit={1}
-      padding={{ horizontal: 4, vertical: 1 }}
-      widgetBackground={{ style: bg, shape: { type: "rect", cornerRadius: 3 } }}
+      padding={{ horizontal: 4 * z, vertical: 1 * z }}
+      widgetBackground={{ style: bg, shape: { type: "rect", cornerRadius: 3 * z } }}
     >
       {text}
     </Text>
@@ -240,7 +242,7 @@ function SurgeBadge({ size = 26 }: { size?: number }): VirtualNode {
   const inner = size * 0.7
 
   return (
-    <IconBox size={size} radius={8} bg={C.iconSurface}>
+    <IconBox size={size} radius={size * 0.31} bg={C.iconSurface}>
       {logo ? (
         <Image image={logo} resizable frame={{ width: inner, height: inner }} widgetAccentedRenderingMode="fullColor" />
       ) : (
@@ -293,12 +295,14 @@ function Card({
   height,
   spacing = 0,
   pad = 8,
+  radius = 12,
 }: {
   children: VirtualNode | VirtualNode[]
   width: number
   height: number
   spacing?: number
   pad?: number
+  radius?: number
 }): VirtualNode {
   return (
     <VStack
@@ -306,7 +310,7 @@ function Card({
       spacing={spacing}
       padding={pad}
       frame={{ width, height, alignment: "topLeading" }}
-      widgetBackground={{ style: C.card, shape: { type: "rect", cornerRadius: 12 } }}
+      widgetBackground={{ style: C.card, shape: { type: "rect", cornerRadius: radius } }}
       border={{ style: C.line, width: 0.5 }}
     >
       {children}
@@ -314,13 +318,13 @@ function Card({
   )
 }
 
-function Mini({ label, value, color = C.text, width }: { label: string; value: string; color?: any; width: number }): VirtualNode {
+function Mini({ label, value, color = C.text, width, z = 1 }: { label: string; value: string; color?: any; width: number; z?: number }): VirtualNode {
   return (
-    <VStack alignment="leading" spacing={0.5} frame={{ width, alignment: "leading" }}>
-      <Text font={5.8} foregroundStyle={C.dim} lineLimit={1}>
+    <VStack alignment="leading" spacing={0.5 * z} frame={{ width, alignment: "leading" }}>
+      <Text font={5.8 * z} foregroundStyle={C.dim} lineLimit={1}>
         {label}
       </Text>
-      <Text font={7.6} fontWeight="semibold" foregroundStyle={color} lineLimit={1} minScaleFactor={0.7}>
+      <Text font={7.6 * z} fontWeight="semibold" foregroundStyle={color} lineLimit={1} minScaleFactor={0.7}>
         {value}
       </Text>
     </VStack>
@@ -333,21 +337,23 @@ function FooterCell({
   label,
   value,
   width,
+  z = 1,
 }: {
   symbol: string
   color: any
   label: string
   value: string
   width: number
+  z?: number
 }): VirtualNode {
   return (
-    <HStack spacing={4} frame={{ width, alignment: "leading" }}>
-      <IconBox symbol={symbol} color={color} size={16} radius={5} />
-      <VStack alignment="leading" spacing={0.5} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-        <Text font={5.8} foregroundStyle={C.dim} lineLimit={1}>
+    <HStack spacing={4 * z} frame={{ width, alignment: "leading" }}>
+      <IconBox symbol={symbol} color={color} size={16 * z} radius={5 * z} />
+      <VStack alignment="leading" spacing={0.5 * z} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+        <Text font={5.8 * z} foregroundStyle={C.dim} lineLimit={1}>
           {label}
         </Text>
-        <Text font={7.6} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.65}>
+        <Text font={7.6 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.65}>
           {value}
         </Text>
       </VStack>
@@ -398,14 +404,14 @@ function BrandBadge({ id, size }: { id: string; size: number }): VirtualNode {
     <VStack
       alignment="center"
       frame={{ width: size, height: size }}
-      widgetBackground={{ style: C.iconSurface, shape: { type: "rect", cornerRadius: 5 } }}
+      widgetBackground={{ style: C.iconSurface, shape: { type: "rect", cornerRadius: size * 0.28 } }}
     >
       {logo ? (
         <Image image={logo} resizable frame={{ width: size * 0.74, height: size * 0.74 }} widgetAccentedRenderingMode="fullColor" />
       ) : brand.symbol ? (
         <Image systemName={brand.symbol} font={size * 0.5} foregroundStyle={brand.color} />
       ) : (
-        <Text font={id === "disney" ? 7.5 : 9.5} fontWeight="bold" foregroundStyle={brand.color}>
+        <Text font={size * (id === "disney" ? 0.42 : 0.53)} fontWeight="bold" foregroundStyle={brand.color}>
           {brand.text || ""}
         </Text>
       )}
@@ -413,23 +419,23 @@ function BrandBadge({ id, size }: { id: string; size: number }): VirtualNode {
   )
 }
 
-function ServiceItem({ service, width, height }: { service: ServiceInfo; width: number; height: number }): VirtualNode {
+function ServiceItem({ service, width, height, z = 1 }: { service: ServiceInfo; width: number; height: number; z?: number }): VirtualNode {
   const ok = service.ok
   const color = service.state === "warn" ? C.amber : service.state === "soon" ? C.blue
     : service.state === "na" ? C.dim : ok ? C.green : C.red
 
   return (
-    <HStack spacing={5} frame={{ width, height, alignment: "leading" }}>
-      <BrandBadge id={service.id} size={height - 6} />
-      <VStack alignment="leading" spacing={0.5} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-        <Text font={8} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
+    <HStack spacing={5 * z} frame={{ width, height, alignment: "leading" }}>
+      <BrandBadge id={service.id} size={height - 6 * z} />
+      <VStack alignment="leading" spacing={0.5 * z} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+        <Text font={8 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
           {service.name}
         </Text>
-        <HStack spacing={2}>
-          <Text font={6.2} fontWeight="bold" foregroundStyle={color}>
+        <HStack spacing={2 * z}>
+          <Text font={6.2 * z} fontWeight="bold" foregroundStyle={color}>
             {service.state === "na" ? "?" : ok ? "✓" : "✕"}
           </Text>
-          <Text font={6.2} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
+          <Text font={6.2 * z} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
             {`${service.cc || "--"} ${serviceStateText(service)}`}
           </Text>
         </HStack>
@@ -445,6 +451,7 @@ function ServiceCard({
   items,
   width,
   height,
+  z = 1,
 }: {
   title: string
   symbol: string
@@ -452,31 +459,34 @@ function ServiceCard({
   items: ServiceInfo[]
   width: number
   height: number
+  z?: number
 }): VirtualNode {
-  const inner = width - 16
+  const pad = 8 * z
+  const inner = width - pad * 2
   const okCount = items.filter((item) => item.ok).length
   const per = items.length > 6 ? 6 : items.length || 6
-  const colWidth = (inner - 6) / 2
-  const itemHeight = 24
+  const colWidth = (inner - 6 * z) / 2
   const rows: ServiceInfo[][] = []
   for (let i = 0; i < per; i += 2) rows.push(items.slice(i, i + 2))
+  // 卡片比基本高度高時，把多出的空間平均給每一列。
+  const itemHeight = Math.max(24 * z, (height - pad * 2 - 16 * z - 2 * z * (rows.length - 1)) / Math.max(1, rows.length))
 
   return (
-    <Card width={width} height={height} spacing={4} pad={8}>
-      <HStack spacing={3} frame={{ width: inner, height: 12 }}>
-        <Image systemName={symbol} font={8} foregroundStyle={color} />
-        <Text font={8.6} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
+    <Card width={width} height={height} spacing={4 * z} pad={pad} radius={12 * z}>
+      <HStack spacing={3 * z} frame={{ width: inner, height: 12 * z }}>
+        <Image systemName={symbol} font={8 * z} foregroundStyle={color} />
+        <Text font={8.6 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
           {title}
         </Text>
         <Spacer />
-        <Tag text={`${okCount}/${items.length}`} color={okCount === items.length ? C.green : C.amber} />
+        <Tag z={z} text={`${okCount}/${items.length}`} color={okCount === items.length ? C.green : C.amber} />
       </HStack>
 
-      <VStack alignment="leading" spacing={2} frame={{ width: inner, alignment: "topLeading" }}>
+      <VStack alignment="leading" spacing={2 * z} frame={{ width: inner, alignment: "topLeading" }}>
         {rows.map((row, index) => (
-          <HStack key={`row-${index}`} spacing={6} frame={{ width: inner, height: itemHeight, alignment: "leading" }}>
+          <HStack key={`row-${index}`} spacing={6 * z} frame={{ width: inner, height: itemHeight, alignment: "leading" }}>
             {row.map((service) => (
-              <ServiceItem key={service.id} service={service} width={colWidth} height={itemHeight} />
+              <ServiceItem key={service.id} service={service} width={colWidth} height={Math.min(itemHeight, 34 * z)} z={z} />
             ))}
           </HStack>
         ))}
@@ -529,15 +539,17 @@ export function RadarView({
 }
 
 function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings: Settings; size: Size }): VirtualNode {
-  const FRAME = 8          // 外框留白：露出的小工具底色就是視窗的「牆」
-  const WIN_R = 16         // 外窗圓角（外層 ~24 − 外框 8，同心收斂）
-  const PAD = 12           // 視窗內左右留白
-  const gap = 7
-  const winW = size.width - FRAME * 2
-  const winH = size.height - FRAME * 2
-  const cw = winW - PAD * 2
-  const halfWidth = (cw - gap) / 2
-  const inner = halfWidth - 16
+  // 版面依實際大小等比縮放：大型在大螢幕會略放大，直式特大多出的高度交給出口詳情卡。
+  const L = largeLayout(size)
+  const z = L.z
+  const WIN_R = 16 * z     // 外窗圓角（外層 ~24 − 外框 8，同心收斂）
+  const PAD = L.pad        // 視窗內左右留白
+  const gap = L.gap
+  const winW = L.winW
+  const winH = L.winH
+  const cw = L.cw
+  const halfWidth = L.half
+  const inner = halfWidth - 16 * z
 
   const exit = snapshot.exit
   const local = snapshot.local
@@ -549,21 +561,20 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
   const localName = carrierText || local.net
   const localSub = shortArea(local.area) || (local.ip ? (masked ? maskIP(local.ip) : local.ip) : "未取得位址")
   const names = latencyNames(snapshot)
-  // 大型基本版面約需 330pt；多出來的高度放一張出口詳情，避免直式特大尺寸中段留白。
-  const extra = winH - 330
-  const detailHeight = extra >= 62 ? Math.min(extra - gap, 166) : 0
   const connected = local.net !== "未知網路"
   const proxyOk = Boolean(exit.ip)
 
-  const miniWidth = (inner - 6) / 2
+  const miniWidth = (inner - 6 * z) / 2
   const ring = Math.max(0, Math.min(100, exit.purity))
+  const ringSize = 30 * z
+  const footerWidth = (cw - 12 * z) / 4
 
   return (
     <VStack
       alignment="leading"
       spacing={0}
       modifiers={modifiers()
-        .padding(FRAME)
+        .padding(L.frame)
         .frame({ maxWidth: "infinity", maxHeight: "infinity", alignment: "topLeading" })
         .widgetBackground(C.bg)}
     >
@@ -576,17 +587,17 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
         clipShape={{ type: "rect", cornerRadius: WIN_R }}
       >
       {/* 頂欄 */}
-      <VStack alignment="leading" spacing={0} padding={{ horizontal: PAD, vertical: 9 }} frame={{ maxWidth: "infinity" }}>
-        <HStack spacing={6} frame={{ width: cw, height: 32 }}>
-          <IconBox symbol="waveform.path.ecg" color={C.blue} size={28} radius={8} bg={C.blueTint} />
-          <VStack alignment="leading" spacing={1.5}>
-            <HStack spacing={4}>
-              <Text font={12} fontWeight="bold" foregroundStyle={C.text} lineLimit={1}>
+      <VStack alignment="leading" spacing={0} padding={{ horizontal: PAD, vertical: 9 * z }} frame={{ maxWidth: "infinity" }}>
+        <HStack spacing={6 * z} frame={{ width: cw, height: 32 * z }}>
+          <IconBox symbol="waveform.path.ecg" color={C.blue} size={28 * z} radius={8 * z} bg={C.blueTint} />
+          <VStack alignment="leading" spacing={1.5 * z}>
+            <HStack spacing={4 * z}>
+              <Text font={12 * z} fontWeight="bold" foregroundStyle={C.text} lineLimit={1}>
                 網路診斷雷達
               </Text>
-              <Tag text="PRO" color={C.blue} bg={C.blueTint} />
+              <Tag z={z} text="PRO" color={C.blue} bg={C.blueTint} />
             </HStack>
-            <Text font={6.6} foregroundStyle={C.dim} lineLimit={1}>
+            <Text font={6.6 * z} foregroundStyle={C.dim} lineLimit={1}>
               {snapshot.src === "surge" ? "Surge · 全面網路狀態檢測" : "Scripting · 全面網路狀態檢測"}
             </Text>
           </VStack>
@@ -594,26 +605,26 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
           <Spacer />
 
           {/* 狀態簇：策略 | 時間，靠右成組，和左側標題構成「視窗標題欄」 */}
-          <HStack spacing={7}>
-            <HStack spacing={3}>
-              <Image systemName="scope" font={9} foregroundStyle={C.dim} />
-              <VStack alignment="leading" spacing={1}>
-                <Text font={6} foregroundStyle={C.dim} lineLimit={1}>
+          <HStack spacing={7 * z}>
+            <HStack spacing={3 * z}>
+              <Image systemName="scope" font={9 * z} foregroundStyle={C.dim} />
+              <VStack alignment="leading" spacing={1 * z}>
+                <Text font={6 * z} foregroundStyle={C.dim} lineLimit={1}>
                   出站模式
                 </Text>
-                <Text font={7.6} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
+                <Text font={7.6 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
                   {modeLabel}
                 </Text>
               </VStack>
             </HStack>
 
-            <Rectangle frame={{ width: 0.5, height: 22 }} foregroundStyle={C.line} />
+            <Rectangle frame={{ width: 0.5, height: 22 * z }} foregroundStyle={C.line} />
 
-            <VStack alignment="trailing" spacing={1}>
-              <Text font={11.5} fontWeight="bold" fontDesign="monospaced" foregroundStyle={C.text} lineLimit={1}>
+            <VStack alignment="trailing" spacing={1 * z}>
+              <Text font={11.5 * z} fontWeight="bold" fontDesign="monospaced" foregroundStyle={C.text} lineLimit={1}>
                 {clockLabel(snapshot.ts)}
               </Text>
-              <Text font={6.2} foregroundStyle={C.dim} lineLimit={1}>
+              <Text font={6.2 * z} foregroundStyle={C.dim} lineLimit={1}>
                 {dateLabel(snapshot.ts)}
               </Text>
             </VStack>
@@ -624,124 +635,127 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
       <Rectangle frame={{ maxWidth: "infinity", height: 0.5 }} foregroundStyle={C.line} />
 
       {/* 左：本機網路卡；右：代理卡 */}
-      <VStack alignment="leading" spacing={gap} padding={{ horizontal: PAD, vertical: 10 }} frame={{ maxWidth: "infinity" }}>
-        <HStack spacing={gap} frame={{ width: cw, height: 98, alignment: "topLeading" }}>
-          <Card width={halfWidth} height={98} spacing={5} pad={8}>
-            <HStack spacing={3} frame={{ width: inner, height: 12 }}>
-              <Image systemName="wifi" font={8} foregroundStyle={C.blue} />
-              <Text font={8.4} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
+      <VStack alignment="leading" spacing={gap} padding={{ horizontal: PAD, vertical: 10 * z }} frame={{ maxWidth: "infinity" }}>
+        <HStack spacing={gap} frame={{ width: cw, height: L.topH, alignment: "topLeading" }}>
+          <Card width={halfWidth} height={L.topH} spacing={5 * z} pad={8 * z} radius={12 * z}>
+            <HStack spacing={3 * z} frame={{ width: inner, height: 12 * z }}>
+              <Image systemName="wifi" font={8 * z} foregroundStyle={C.blue} />
+              <Text font={8.4 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
                 本機網路
               </Text>
               <Spacer />
-              <Tag text={connected ? "已連線" : "離線"} color={connected ? C.green : C.red} bg={connected ? C.greenTint : C.redTint} />
+              <Tag z={z} text={connected ? "已連線" : "離線"} color={connected ? C.green : C.red} bg={connected ? C.greenTint : C.redTint} />
             </HStack>
 
-            <HStack spacing={6} frame={{ width: inner, height: 28, alignment: "leading" }}>
+            <HStack spacing={6 * z} frame={{ width: inner, height: 28 * z, alignment: "leading" }}>
               <IconBox
                 symbol={isWifi(local.net) ? "wifi" : "antenna.radiowaves.left.and.right"}
                 color={C.blue}
-                size={26}
-                radius={8}
+                size={26 * z}
+                radius={8 * z}
                 bg={C.blueTint}
               />
-              <VStack alignment="leading" spacing={1.5} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-                <Text font={8.6} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
+              <VStack alignment="leading" spacing={1.5 * z} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                <Text font={8.6 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.7}>
                   {localName}
                 </Text>
-                <HStack spacing={2}>
-                  <CountryFlag value={localFlagCode(local.area)} size={7} />
-                  <Text font={6.4} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
+                <HStack spacing={2 * z}>
+                  <CountryFlag value={localFlagCode(local.area)} size={7 * z} />
+                  <Text font={6.4 * z} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
                     {localSub}
                   </Text>
                 </HStack>
               </VStack>
             </HStack>
 
-            <HStack spacing={6} frame={{ width: inner, height: 13 }}>
-              <Mini label="閘道" value={local.gw || "—"} width={miniWidth} color={local.gw ? C.text : C.dim} />
-              <Mini label={`${names.local}延遲`} value={snapshot.lat.local ? `${snapshot.lat.local}ms` : "逾時"} width={miniWidth} color={latencyColor(snapshot.lat.local)} />
+            <HStack spacing={6 * z} frame={{ width: inner, height: 13 * z }}>
+              <Mini z={z} label="閘道" value={local.gw || "—"} width={miniWidth} color={local.gw ? C.text : C.dim} />
+              <Mini z={z} label={`${names.local}延遲`} value={snapshot.lat.local ? `${snapshot.lat.local}ms` : "逾時"} width={miniWidth} color={latencyColor(snapshot.lat.local)} />
             </HStack>
-            <HStack spacing={6} frame={{ width: inner, height: 13 }}>
+            <HStack spacing={6 * z} frame={{ width: inner, height: 13 * z }}>
               <Mini
+                z={z}
                 label="IPv4 / IPv6"
                 value={`✓ / ${local.v6 ? "✓" : "✕"}`}
                 width={miniWidth}
                 color={local.v6 ? C.green : C.sub}
               />
-              <Mini label="DNS" value={local.dns || "系統"} width={miniWidth} />
+              <Mini z={z} label="DNS" value={local.dns || "系統"} width={miniWidth} />
             </HStack>
           </Card>
 
-          <Card width={halfWidth} height={98} spacing={5} pad={8}>
-            <HStack spacing={3} frame={{ width: inner, height: 12 }}>
-              <Image systemName="point.3.connected.trianglepath.dotted" font={8} foregroundStyle={C.purple} />
-              <Text font={8.4} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
+          <Card width={halfWidth} height={L.topH} spacing={5 * z} pad={8 * z} radius={12 * z}>
+            <HStack spacing={3 * z} frame={{ width: inner, height: 12 * z }}>
+              <Image systemName="point.3.connected.trianglepath.dotted" font={8 * z} foregroundStyle={C.purple} />
+              <Text font={8.4 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
                 目前代理
               </Text>
               <Spacer />
               <Tag
+                z={z}
                 text={proxyOk ? "連線正常" : "無出口"}
                 color={proxyOk ? C.green : C.red}
                 bg={proxyOk ? C.greenTint : C.redTint}
               />
             </HStack>
 
-            <HStack spacing={5} frame={{ width: inner, height: 30, alignment: "leading" }}>
-              <SurgeBadge size={26} />
-              <VStack alignment="leading" spacing={1} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-                <HStack spacing={2}>
-                  <CountryFlag value={exit.cc || exit.country} size={7} />
-                  <Text font={8.4} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.6}>
+            <HStack spacing={5 * z} frame={{ width: inner, height: 30 * z, alignment: "leading" }}>
+              <SurgeBadge size={26 * z} />
+              <VStack alignment="leading" spacing={1 * z} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                <HStack spacing={2 * z}>
+                  <CountryFlag value={exit.cc || exit.country} size={7 * z} />
+                  <Text font={8.4 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1} minScaleFactor={0.6}>
                     {prettyName(snapshot.surge?.node || exit.city || exit.country) || "未識別"}
                   </Text>
                 </HStack>
-                <Text font={6.4} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
+                <Text font={6.4 * z} foregroundStyle={C.sub} lineLimit={1} minScaleFactor={0.7}>
                   {shortIsp(exit.isp)}
                 </Text>
               </VStack>
 
-              <ZStack frame={{ width: 30, height: 30 }}>
-                <Circle stroke={{ shapeStyle: C.ringTrack as any, strokeStyle: { lineWidth: 3 } }} frame={{ width: 30, height: 30 }} />
+              <ZStack frame={{ width: ringSize, height: ringSize }}>
+                <Circle stroke={{ shapeStyle: C.ringTrack as any, strokeStyle: { lineWidth: 3 * z } }} frame={{ width: ringSize, height: ringSize }} />
                 <Circle
                   trim={{ from: 0, to: ring / 100 }}
-                  stroke={{ shapeStyle: purityColor(ring), strokeStyle: { lineWidth: 3 } }}
-                  frame={{ width: 30, height: 30 }}
+                  stroke={{ shapeStyle: purityColor(ring), strokeStyle: { lineWidth: 3 * z } }}
+                  frame={{ width: ringSize, height: ringSize }}
                   rotationEffect={-90}
                 />
                 <VStack alignment="center" spacing={0}>
-                  <Text font={8.6} fontWeight="bold" foregroundStyle={purityColor(ring)}>
+                  <Text font={8.6 * z} fontWeight="bold" foregroundStyle={purityColor(ring)}>
                     {String(ring)}
                   </Text>
-                  <Text font={4.6} foregroundStyle={C.dim}>
+                  <Text font={4.6 * z} foregroundStyle={C.dim}>
                     純淨
                   </Text>
                 </VStack>
               </ZStack>
             </HStack>
 
-            <HStack spacing={6} frame={{ width: inner, height: 13 }}>
-              <Mini label={`${names.proxy}延遲`} value={snapshot.lat.proxy ? `${snapshot.lat.proxy}ms` : "逾時"} width={miniWidth} color={latencyColor(snapshot.lat.proxy)} />
-              <Mini label="NAT" value={local.nat || "—"} width={miniWidth} color={local.nat === "NAT" || local.nat === "公網" ? C.green : C.amber} />
+            <HStack spacing={6 * z} frame={{ width: inner, height: 13 * z }}>
+              <Mini z={z} label={`${names.proxy}延遲`} value={snapshot.lat.proxy ? `${snapshot.lat.proxy}ms` : "逾時"} width={miniWidth} color={latencyColor(snapshot.lat.proxy)} />
+              <Mini z={z} label="NAT" value={local.nat || "—"} width={miniWidth} color={local.nat === "NAT" || local.nat === "公網" ? C.green : C.amber} />
             </HStack>
-            <HStack spacing={6} frame={{ width: inner, height: 13 }}>
+            <HStack spacing={6 * z} frame={{ width: inner, height: 13 * z }}>
               <Mini
+                z={z}
                 label="HTTP/3 QUIC"
                 value={snapshot.quic.ok ? "✓ 可用" : snapshot.quic.reachable ? "✕ 未使用" : "無回應"}
                 width={miniWidth}
                 color={snapshot.quic.ok ? C.green : C.amber}
               />
-              <Mini label="協定" value={shortProtocol(snapshot.surge?.protocol || "")} width={miniWidth} color={snapshot.surge?.protocol ? C.teal : C.dim} />
+              <Mini z={z} label="協定" value={shortProtocol(snapshot.surge?.protocol || "")} width={miniWidth} color={snapshot.surge?.protocol ? C.teal : C.dim} />
             </HStack>
           </Card>
         </HStack>
 
       {/* 服務網格 */}
-        <HStack spacing={gap} frame={{ width: cw, height: 110, alignment: "topLeading" }}>
-          <ServiceCard title="串流解鎖" symbol="play.tv.fill" color={C.blue} items={snapshot.media} width={halfWidth} height={110} />
-          <ServiceCard title="AI 解鎖檢測" symbol="sparkles" color={C.purple} items={snapshot.ai} width={halfWidth} height={110} />
+        <HStack spacing={gap} frame={{ width: cw, height: L.serviceH, alignment: "topLeading" }}>
+          <ServiceCard z={z} title="串流解鎖" symbol="play.tv.fill" color={C.blue} items={snapshot.media} width={halfWidth} height={L.serviceH} />
+          <ServiceCard z={z} title="AI 解鎖檢測" symbol="sparkles" color={C.purple} items={snapshot.ai} width={halfWidth} height={L.serviceH} />
         </HStack>
 
-        {detailHeight > 0 ? <ExitDetailCard snapshot={snapshot} ipText={ipText} width={cw} height={detailHeight} /> : null}
+        {L.detailH > 0 ? <ExitDetailCard snapshot={snapshot} ipText={ipText} width={cw} layout={L} /> : null}
       </VStack>
 
       <Spacer />
@@ -750,31 +764,31 @@ function LargeCard({ snapshot, settings, size }: { snapshot: Snapshot; settings:
 
       {/* 底部指標 */}
       <HStack
-        spacing={4}
-        frame={{ width: winW, height: 26, alignment: "leading" }}
-        padding={{ horizontal: PAD, vertical: 7 }}
+        spacing={4 * z}
+        frame={{ width: winW, height: 26 * z, alignment: "leading" }}
+        padding={{ horizontal: PAD, vertical: 7 * z }}
         widgetBackground={{ style: C.footer, shape: { type: "rect", cornerRadii: { topLeading: 0, topTrailing: 0, bottomLeading: WIN_R, bottomTrailing: WIN_R } } }}
       >
-          <FooterCell symbol="server.rack" color={C.blue} label="ISP／業者" value={shortIsp(exit.isp || exit.org)} width={(cw - 12) / 4} />
-          <FooterCell symbol="building.2.fill" color={C.amber} label="屬性類型" value={exit.kind || "未知"} width={(cw - 12) / 4} />
-          <FooterCell symbol="checkmark.shield.fill" color={purityColor(ring)} label="純淨評分" value={`${ring} 分`} width={(cw - 12) / 4} />
-          <FooterCell symbol="exclamationmark.shield.fill" color={riskColor(exit.risk)} label="風險等級" value={exit.risk || "未知"} width={(cw - 12) / 4} />
+          <FooterCell z={z} symbol="server.rack" color={C.blue} label="ISP／業者" value={shortIsp(exit.isp || exit.org)} width={footerWidth} />
+          <FooterCell z={z} symbol="building.2.fill" color={C.amber} label="屬性類型" value={exit.kind || "未知"} width={footerWidth} />
+          <FooterCell z={z} symbol="checkmark.shield.fill" color={purityColor(ring)} label="純淨評分" value={`${ring} 分`} width={footerWidth} />
+          <FooterCell z={z} symbol="exclamationmark.shield.fill" color={riskColor(exit.risk)} label="風險等級" value={exit.risk || "未知"} width={footerWidth} />
       </HStack>
       </VStack>
     </VStack>
   )
 }
 
-function DetailCell({ label, value, width, color = C.text, mono = false }: {
-  label: string; value: string; width: number; color?: any; mono?: boolean
+function DetailCell({ label, value, width, color = C.text, mono = false, z = 1 }: {
+  label: string; value: string; width: number; color?: any; mono?: boolean; z?: number
 }): VirtualNode {
   return (
-    <VStack alignment="leading" spacing={1} frame={{ width, alignment: "leading" }}>
-      <Text font={6.2} foregroundStyle={C.dim} lineLimit={1}>
+    <VStack alignment="leading" spacing={1 * z} frame={{ width, alignment: "leading" }}>
+      <Text font={6.2 * z} foregroundStyle={C.dim} lineLimit={1}>
         {label}
       </Text>
       <Text
-        font={9}
+        font={9 * z}
         fontWeight="semibold"
         fontDesign={mono ? "monospaced" : undefined}
         foregroundStyle={color}
@@ -787,58 +801,58 @@ function DetailCell({ label, value, width, color = C.text, mono = false }: {
   )
 }
 
-/** 直式特大尺寸才會出現：把大型版面放不下的出口資訊列出來。可顯示幾列由高度決定。 */
-function ExitDetailCard({ snapshot, ipText, width, height }: {
-  snapshot: Snapshot; ipText: string; width: number; height: number
+/** 直式特大等較高的尺寸才會出現：列出大型版面放不下的出口資訊，列高與字級隨卡片高度放大。 */
+function ExitDetailCard({ snapshot, ipText, width, layout }: {
+  snapshot: Snapshot; ipText: string; width: number; layout: LargeLayout
 }): VirtualNode {
+  const z = layout.z
+  const tz = z * layout.detailZ
   const exit = snapshot.exit
-  const inner = width - 16
-  const cell = (inner - 8) / 2
+  const inner = width - 16 * z
+  const cell = (inner - 8 * z) / 2
   const usable = (items: ServiceInfo[]) => `${items.filter((item) => item.ok).length}/${items.length}`
   const rows: { key: string; left: VirtualNode; right: VirtualNode }[] = [
     {
       key: "ip",
-      left: <DetailCell label="出口 IP" value={ipText || "未識別"} width={cell} mono />,
-      right: <DetailCell label="位置" value={[exit.country || exit.cc, exit.region, exit.city]
+      left: <DetailCell z={tz} label="出口 IP" value={ipText || "未識別"} width={cell} mono />,
+      right: <DetailCell z={tz} label="位置" value={[exit.country || exit.cc, exit.region, exit.city]
         .filter((part, index, list) => Boolean(part) && list.indexOf(part) === index).join(" · ")} width={cell} />,
     },
     {
       key: "net",
-      left: <DetailCell label="ISP" value={exit.isp || exit.org} width={cell} />,
-      right: <DetailCell label="ASN" value={exit.asn} width={cell} mono />,
+      left: <DetailCell z={tz} label="ISP" value={exit.isp || exit.org} width={cell} />,
+      right: <DetailCell z={tz} label="ASN" value={exit.asn} width={cell} mono />,
     },
     {
       key: "risk",
-      left: <DetailCell label="屬性類型" value={exit.kind} width={cell} />,
-      right: <DetailCell label="純淨度／風險" value={`${exit.purity} 分 · ${exit.risk}`} width={cell} color={riskColor(exit.risk)} />,
+      left: <DetailCell z={tz} label="屬性類型" value={exit.kind} width={cell} />,
+      right: <DetailCell z={tz} label="純淨度／風險" value={`${exit.purity} 分 · ${exit.risk}`} width={cell} color={riskColor(exit.risk)} />,
     },
     {
       key: "surge",
-      left: <DetailCell label="目前節點" value={prettyName(snapshot.surge?.node || "")} width={cell} />,
-      right: <DetailCell label="策略群組" value={prettyName(snapshot.surge?.policy || "")} width={cell} />,
+      left: <DetailCell z={tz} label="目前節點" value={prettyName(snapshot.surge?.node || "")} width={cell} />,
+      right: <DetailCell z={tz} label="策略群組" value={prettyName(snapshot.surge?.policy || "")} width={cell} />,
     },
     {
       key: "sum",
-      left: <DetailCell label="解鎖摘要" value={`串流 ${usable(snapshot.media)} · AI ${usable(snapshot.ai)}`} width={cell} />,
-      right: <DetailCell label="資料來源" value={`${snapshot.src === "surge" ? "Surge 快照" : "本機自測"} · ${agoLabel(snapshot.ts)}`} width={cell} />,
+      left: <DetailCell z={tz} label="解鎖摘要" value={`串流 ${usable(snapshot.media)} · AI ${usable(snapshot.ai)}`} width={cell} />,
+      right: <DetailCell z={tz} label="資料來源" value={`${snapshot.src === "surge" ? "Surge 快照" : "本機自測"} · ${agoLabel(snapshot.ts)}`} width={cell} />,
     },
   ]
-  const rowHeight = 24
-  const count = Math.max(1, Math.min(rows.length, Math.floor((height - 16 - 12 - 5) / (rowHeight + 3))))
 
   return (
-    <Card width={width} height={height} spacing={5} pad={8}>
-      <HStack spacing={3} frame={{ width: inner, height: 12 }}>
-        <Image systemName="globe.asia.australia.fill" font={8} foregroundStyle={C.teal} />
-        <Text font={8.4} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
+    <Card width={width} height={layout.detailH} spacing={5 * z} pad={8 * z} radius={12 * z}>
+      <HStack spacing={3 * z} frame={{ width: inner, height: 12 * z }}>
+        <Image systemName="globe.asia.australia.fill" font={8 * z} foregroundStyle={C.teal} />
+        <Text font={8.4 * z} fontWeight="semibold" foregroundStyle={C.text} lineLimit={1}>
           出口詳情
         </Text>
         <Spacer />
-        <CountryFlag value={exit.cc || exit.country} size={8} />
+        <CountryFlag value={exit.cc || exit.country} size={8 * z} />
       </HStack>
-      <VStack alignment="leading" spacing={3} frame={{ width: inner, alignment: "topLeading" }}>
-        {rows.slice(0, count).map((row) => (
-          <HStack key={row.key} spacing={8} frame={{ width: inner, height: rowHeight, alignment: "leading" }}>
+      <VStack alignment="leading" spacing={0} frame={{ width: inner, alignment: "topLeading" }}>
+        {rows.slice(0, layout.detailRows).map((row) => (
+          <HStack key={row.key} spacing={8 * z} frame={{ width: inner, height: layout.detailRowH, alignment: "leading" }}>
             {row.left}
             {row.right}
           </HStack>
