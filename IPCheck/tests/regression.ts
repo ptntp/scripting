@@ -9,7 +9,7 @@ import { activeRiskFlags, hasKnownRiskFlags, shouldShowRiskScale } from "../util
 import { hasCoordinates } from "../utils/map"
 import { countryCode, detectNAT, flagOf, maskIP, parseTrace, regionOfName, widgetKind } from "../src/net"
 import { GLOBAL_LATENCY_URLS, QUIC_TRACE_URLS, TAIWAN_LATENCY_URLS, classifyInterfaces, isHttp3, mergeExit, splitServices } from "../src/diagnose"
-import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, bahamutError, bahamutGeo, setCookiePairs, mergeCookies, cookieCount, parseYoutube,
+import { SERVICES, failureDetail, judgeDisney, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, bahamutError, bahamutGeo, setCookiePairs, mergeCookies, cookieCount, parseYoutube,
   regionCode, serviceStateText, toServiceInfo } from "../src/unlock"
 import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseRemoteSnapshot,
   policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
@@ -239,6 +239,20 @@ async function run() {
     && judgeNetflix({ kind: "blocked" }, { kind: "error" }).state === "no"
     && judgeNetflix({ kind: "missing" }, { kind: "missing" }).state === "no"
     && judgeNetflix({ kind: "error" }, { kind: "region", region: "US" }).state === "na")
+  check("Netflix 逾時與失敗分開顯示", () => judgeNetflix({ kind: "error", detail: "檢測逾時" }, { kind: "error" }).detail === "檢測逾時"
+    && judgeNetflix({ kind: "missing" }, { kind: "error", detail: "檢測逾時" }).detail === "檢測逾時"
+    && judgeNetflix({ kind: "error" }, { kind: "error" }).detail === "檢測失敗")
+  check("逾時判斷", () => failureDetail(new Error("請求逾時")) === "檢測逾時" && failureDetail("Timeout") === "檢測逾時"
+    && failureDetail(new Error("boom")) === "檢測失敗")
+  const located = { ok: true as const, value: { countryCode: "TW", supported: true } }
+  check("Disney+ 首頁逾時不拖累結果", () => judgeDisney({ ok: false, outcome: "timeout" }, located).state === "ok"
+    && judgeDisney({ ok: false, outcome: "timeout" }, located).region === "TW")
+  check("Disney+ 未開放與即將上線", () => judgeDisney({ ok: false, outcome: "unavailable" }, located).state === "no"
+    && judgeDisney({ ok: true, value: "" }, { ok: false, outcome: "unavailable" }).state === "no"
+    && judgeDisney({ ok: true, value: "JP" }, { ok: true, value: { countryCode: "", supported: false } }).state === "soon"
+    && judgeDisney({ ok: true, value: "JP" }, { ok: true, value: { countryCode: "", supported: false } }).region === "JP")
+  check("Disney+ 註冊失敗時顯示原因", () => judgeDisney({ ok: true, value: "TW" }, { ok: false, outcome: "timeout" }).detail === "檢測逾時"
+    && judgeDisney({ ok: true, value: "TW" }, { ok: false, outcome: "error" }).detail === "檢測失敗")
   check("YouTube Premium 地區", () => parseYoutube(200, '{"countryCode":"TW"}').region === "TW"
     && parseYoutube(200, "Premium is not available in your country").state === "no" && parseYoutube(503, "").state === "na")
   check("ChatGPT 支援地區", () => judgeChatGPT("tw", "ok").state === "ok" && judgeChatGPT("TW", "blocked").state === "warn"
