@@ -4,6 +4,13 @@
 
 ## 未發布 - 2026-11-13
 
+### 修正動畫瘋在台灣誤判為不可用
+
+- 原因一：動畫瘋的 `token.php` 需要 `getdeviceid.php` 設定的 cookie，但 Scripting 的 `fetch` 不會自動保存或送出 cookie，原本沒有手動帶上，token 請求必定回錯誤。現在從回應的 `cookies` 取出後放進下一個請求的 `Cookie` 標頭。
+- 原因二：原本把任何含 `error` 的回應都當成「限台灣地區」。現在只有錯誤訊息明確提到地區限制、或首頁 `data-geo` 判定不在台灣／香港／澳門時才算「不可用」；其他錯誤顯示「檢測失敗」並附上訊息，主頁看得到。
+- 可觀看時地區改取自首頁 `data-geo`（缺少時為台灣），做法對照 lmc999/RegionRestrictionCheck 與 nkeonkeo/MediaUnlockTest。
+- 新增 3 項斷言，共 145 項通過；動畫瘋站台無法從開發環境連線，實際回應尚待手機上確認。
+
 ### 小工具細節修正
 
 - 協定名稱不再截成 8 個字（「WireGuard」原本顯示成「WireGuar」），超過 10 字才加刪節號。
