@@ -72,7 +72,20 @@ export function regionCode(value: unknown): string {
   return /^[A-Z]{2}$/.test(code) ? code : ""
 }
 
-type HttpResult = { status: number; text: string; url: string; header: (name: string) => string }
+type HttpResult = {
+  status: number; text: string; url: string; header: (name: string) => string
+  /** 伺服器以 Set-Cookie 設定的 cookie，已組成可直接放進 Cookie 標頭的字串 */
+  cookie: string
+}
+
+/** Scripting 的 fetch 不會自動保存或送出 cookie，需要時由呼叫端手動帶到下一個請求。 */
+function cookieHeader(cookies: unknown): string {
+  if (!Array.isArray(cookies)) return ""
+  return cookies
+    .filter((item: any) => item && typeof item.name === "string" && item.name)
+    .map((item: any) => `${item.name}=${item.value ?? ""}`)
+    .join("; ")
+}
 
 async function request(url: string, init: {
   method?: string; headers?: Record<string, string>; body?: string; timeout?: number
@@ -90,9 +103,12 @@ async function request(url: string, init: {
       timeout: seconds,
     })
     const text = await response.text()
+    let cookie = ""
+    try { cookie = cookieHeader((response as any).cookies) } catch { /* 舊版沒有 cookies 屬性 */ }
     return {
       status: response.status, text, url: response.url || url,
       header: (name: string) => response.headers.get(name) ?? "",
+      cookie,
     }
   }, seconds * 1000 + 500)
 }
@@ -216,20 +232,54 @@ async function checkDisney(): Promise<ServiceResult> {
 
 // ── 巴哈姆特動畫瘋（僅限台灣 IP）─────────────────────────────
 
-export function parseBahamut(status: number, body: string): ServiceResult {
-  if (status === 200 && body.includes("animeSn")) return makeService("bahamut", "ok", "TW", "可觀看")
-  if (status > 0 && status < 500 && /"error"/.test(body)) return makeService("bahamut", "no", "", "限台灣地區觀看")
-  return makeService("bahamut", "na", "", "檢測失敗")
+/** 動畫瘋開放觀看的地區。 */
+const BAHAMUT_REGIONS = ["TW", "HK", "MO"]
+
+/** 取出 token.php 錯誤回應裡的訊息文字。 */
+export function bahamutError(body: string): string {
+  try {
+    const data = JSON.parse(body)
+    const error = data?.error
+    if (typeof error === "string") return error.trim()
+    if (error && typeof error === "object") return String(error.message ?? error.msg ?? error.code ?? "").trim()
+  } catch { /* 非 JSON */ }
+  return ""
+}
+
+/**
+ * 判斷動畫瘋可否觀看。geo 是首頁 data-geo 標示的地區。
+ * 只有回應明確指出地區限制、或首頁判定不在開放地區時才算「不可用」；
+ * 其他錯誤（cookie、裝置驗證、作品下架等）一律算「檢測失敗」，不誤判成地區限制。
+ */
+export function parseBahamut(status: number, body: string, geo = ""): ServiceResult {
+  const region = regionCode(geo)
+  if (status === 200 && body.includes("animeSn")) return makeService("bahamut", "ok", region || "TW", "可觀看")
+  const message = bahamutError(body)
+  if (/地區|地区|區域|区域|海外|region|country/i.test(message) || (region && !BAHAMUT_REGIONS.includes(region))) {
+    return makeService("bahamut", "no", region, "此地區無法觀看")
+  }
+  return makeService("bahamut", "na", region, message ? `檢測失敗：${message.slice(0, 24)}` : "檢測失敗")
+}
+
+/** 首頁 HTML 的 data-geo 屬性標示動畫瘋判定的地區。 */
+export function bahamutGeo(html: string): string {
+  return regionCode(String(html || "").match(/data-geo="([A-Za-z]{2})"/)?.[1])
 }
 
 async function checkBahamut(): Promise<ServiceResult> {
   try {
-    const device = await request("https://ani.gamer.com.tw/ajax/getdeviceid.php")
-    const deviceId = String(JSON.parse(device.text)?.deviceid || "")
-    if (!deviceId) return makeService("bahamut", "na", "", "檢測失敗")
-    const token = await request(
-      `https://ani.gamer.com.tw/ajax/token.php?adID=89422&sn=37783&device=${encodeURIComponent(deviceId)}`)
-    return parseBahamut(token.status, token.text)
+    const headers = { "Accept-Language": "zh-TW,zh;q=0.9", Referer: "https://ani.gamer.com.tw/" }
+    const device = await request("https://ani.gamer.com.tw/ajax/getdeviceid.php", { headers })
+    let deviceId = ""
+    try { deviceId = String(JSON.parse(device.text)?.deviceid || "") } catch { /* 非 JSON */ }
+    if (!deviceId) return makeService("bahamut", "na", "", device.status ? `檢測失敗（HTTP ${device.status}）` : "檢測失敗")
+    // token.php 需要 getdeviceid.php 設定的 cookie，否則會回錯誤。
+    const withCookie = device.cookie ? { ...headers, Cookie: device.cookie } : headers
+    const [token, home] = await Promise.all([
+      request(`https://ani.gamer.com.tw/ajax/token.php?adID=89422&sn=37783&device=${encodeURIComponent(deviceId)}`, { headers: withCookie }),
+      request("https://ani.gamer.com.tw/", { headers: withCookie }).catch(() => null),
+    ])
+    return parseBahamut(token.status, token.text, home ? bahamutGeo(home.text) : "")
   } catch { return makeService("bahamut", "na", "", "檢測失敗") }
 }
 

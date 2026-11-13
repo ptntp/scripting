@@ -9,7 +9,7 @@ import { activeRiskFlags, hasKnownRiskFlags, shouldShowRiskScale } from "../util
 import { hasCoordinates } from "../utils/map"
 import { countryCode, detectNAT, flagOf, maskIP, parseTrace, regionOfName, widgetKind } from "../src/net"
 import { GLOBAL_LATENCY_URLS, QUIC_TRACE_URLS, TAIWAN_LATENCY_URLS, classifyInterfaces, isHttp3, mergeExit, splitServices } from "../src/diagnose"
-import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, parseYoutube,
+import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, bahamutError, bahamutGeo, parseYoutube,
   regionCode, serviceStateText, toServiceInfo } from "../src/unlock"
 import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseRemoteSnapshot,
   policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
@@ -243,8 +243,16 @@ async function run() {
     && parseYoutube(200, "Premium is not available in your country").state === "no" && parseYoutube(503, "").state === "na")
   check("ChatGPT 支援地區", () => judgeChatGPT("tw", "ok").state === "ok" && judgeChatGPT("TW", "blocked").state === "warn"
     && judgeChatGPT("HK", "ok").state === "no" && judgeChatGPT("", "ok").state === "no")
-  check("動畫瘋判定", () => parseBahamut(200, '{"animeSn":37783}').region === "TW"
-    && parseBahamut(200, '{"error":{"code":1011}}').state === "no" && parseBahamut(0, "").state === "na")
+  check("動畫瘋可觀看", () => parseBahamut(200, '{"animeSn":37783}').state === "ok" && parseBahamut(200, '{"animeSn":37783}').region === "TW"
+    && parseBahamut(200, '{"animeSn":37783}', "HK").region === "HK")
+  check("動畫瘋地區限制才算不可用", () => parseBahamut(200, '{"error":{"code":1011,"message":"很抱歉！本節目因版權限制，僅限台灣地區觀看"}}').state === "no"
+    && parseBahamut(200, '{"error":{"code":1}}', "JP").state === "no")
+  check("動畫瘋其他錯誤不誤判", () => parseBahamut(200, '{"error":{"code":1011}}').state === "na"
+    && parseBahamut(200, '{"error":{"message":"裝置驗證失敗"}}', "TW").state === "na"
+    && parseBahamut(200, '{"error":{"message":"裝置驗證失敗"}}', "TW").detail === "檢測失敗：裝置驗證失敗"
+    && parseBahamut(0, "").state === "na")
+  check("動畫瘋首頁地區", () => bahamutGeo('<body data-geo="TW" class="x">') === "TW" && bahamutGeo("<body>") === ""
+    && bahamutError('{"error":{"message":" 錯誤 "}}') === "錯誤" && bahamutError("oops") === "")
   check("連線檢測判定", () => judgeReach("claude", 403, "TW").state === "ok" && judgeReach("copilot", 451, "").state === "no"
     && judgeReach("grok", 502, "").state === "na" && judgeReach("spotify", 0, "").state === "no")
   const partial = toServiceInfo(makeService("netflix", "warn", "JP", "僅自製影片"), "TW")
