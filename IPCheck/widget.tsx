@@ -28,7 +28,8 @@ async function loadSnapshot(settings: Settings): Promise<Snapshot | null> {
   }
 
   // 2) 本機自測：限制等待時間，避免冷啟動的網路請求占滿小工具的執行時間。
-  const fresh = await withTimeout(diagnose(), 15_000)
+  //    大型網頁檢測最多 10 秒、單項上限 15 秒，整體再留一點餘裕。
+  const fresh = await withTimeout(diagnose(), 20_000)
   if (fresh) {
     saveSnapshot(fresh)
     return fresh

@@ -120,6 +120,8 @@ async function request(url: string, init: {
   method?: string; headers?: Record<string, string>; body?: string; timeout?: number
   /** 預設在網址加時間戳避免快取；網站會驗證參數時關掉 */
   bust?: boolean
+  /** 只需要狀態碼與標頭時不讀內容，大型網頁可省下下載時間 */
+  skipBody?: boolean
 } = {}): Promise<HttpResult> {
   const seconds = init.timeout ?? 6
   return withTimeout(async () => {
@@ -133,7 +135,7 @@ async function request(url: string, init: {
       body: init.body,
       timeout: seconds,
     })
-    const text = await response.text()
+    const text = init.skipBody ? "" : await response.text()
     let fromList = ""
     try { fromList = cookieHeader((response as any).cookies) } catch { /* 舊版沒有 cookies 屬性 */ }
     let fromHeader = ""
@@ -158,11 +160,19 @@ export function parseYoutube(status: number, html: string): ServiceResult {
   return makeService("youtube", "ok", region, "可訂閱 Premium")
 }
 
+/** 大型網頁在行動網路或小工具背景執行時常超過 6 秒，給較長的時間。 */
+const PAGE_TIMEOUT = 10
+
+/** 依錯誤區分逾時與其他失敗，方便判斷是網路慢還是服務回應異常。 */
+export function failureDetail(error: unknown): string {
+  return /逾時|timeout/i.test(String(error)) ? "檢測逾時" : "檢測失敗"
+}
+
 async function checkYoutube(): Promise<ServiceResult> {
   try {
-    const res = await request("https://www.youtube.com/premium")
+    const res = await request("https://www.youtube.com/premium", { timeout: PAGE_TIMEOUT })
     return parseYoutube(res.status, res.text)
-  } catch { return makeService("youtube", "na", "", "檢測失敗") }
+  } catch (error) { return makeService("youtube", "na", "", failureDetail(error)) }
 }
 
 // ── Netflix ─────────────────────────────────────────────────
@@ -173,26 +183,27 @@ export function netflixRegion(raw: string): string {
   return segment.toLowerCase() === "title" ? "US" : regionCode(segment) || "US"
 }
 
-type NetflixProbe = { kind: "region"; region: string } | { kind: "missing" | "blocked" | "error" }
+type NetflixProbe = { kind: "region"; region: string } | { kind: "missing" | "blocked" } | { kind: "error"; detail?: string }
 
 async function probeNetflix(titleId: number): Promise<NetflixProbe> {
   try {
-    const res = await request(`https://www.netflix.com/title/${titleId}`)
+    // 只看狀態碼與 x-originating-url，不下載整頁影片頁面。
+    const res = await request(`https://www.netflix.com/title/${titleId}`, { timeout: PAGE_TIMEOUT, skipBody: true })
     if (res.status === 403) return { kind: "blocked" }
     if (res.status === 404) return { kind: "missing" }
     if (res.status === 200) return { kind: "region", region: netflixRegion(res.header("x-originating-url") || res.url) }
     return { kind: "error" }
-  } catch { return { kind: "error" } }
+  } catch (error) { return { kind: "error", detail: failureDetail(error) } }
 }
 
 /** first：非自製影片（需完整片庫）；second：Netflix 自製影片（僅自製也看得到）。 */
 export function judgeNetflix(first: NetflixProbe, second: NetflixProbe): ServiceResult {
   if (first.kind === "region") return makeService("netflix", "ok", first.region, "完整片庫")
   if (first.kind === "blocked") return makeService("netflix", "no", "", "此地區未開放")
-  if (first.kind === "error") return makeService("netflix", "na", "", "檢測失敗")
+  if (first.kind === "error") return makeService("netflix", "na", "", first.detail || "檢測失敗")
   if (second.kind === "region") return makeService("netflix", "warn", second.region, "僅自製影片")
   if (second.kind === "missing" || second.kind === "blocked") return makeService("netflix", "no", "", "此地區未開放")
-  return makeService("netflix", "na", "", "檢測失敗")
+  return makeService("netflix", "na", "", (second.kind === "error" && second.detail) || "檢測失敗")
 }
 
 async function checkNetflix(): Promise<ServiceResult> {
@@ -212,7 +223,7 @@ class DisneyError extends Error {
 }
 
 async function disneyHome(): Promise<string> {
-  const res = await request("https://www.disneyplus.com/", { timeout: 5 })
+  const res = await request("https://www.disneyplus.com/", { timeout: 8 })
   if (res.status !== 200 || res.text.includes("Sorry, Disney+ is not available in your region.")) {
     throw new DisneyError("unavailable")
   }
@@ -222,7 +233,7 @@ async function disneyHome(): Promise<string> {
 async function disneyLocation(): Promise<{ countryCode: string; supported: boolean }> {
   // 與 Disney+ 網頁版相同的公開裝置註冊請求，只用來讀取服務判定的地區。
   const res = await request("https://disney.api.edge.bamgrid.com/graph/v1/device/graphql", {
-    method: "POST", timeout: 5,
+    method: "POST", timeout: 8,
     headers: {
       Authorization: "ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84",
       "Content-Type": "application/json",
@@ -250,18 +261,38 @@ async function disneyLocation(): Promise<{ countryCode: string; supported: boole
   return { countryCode: regionCode(countryCode), supported: !(supported === false || supported === "false") }
 }
 
+type DisneyPart<T> = { ok: true; value: T } | { ok: false; outcome: "unavailable" | "timeout" | "error" }
+
+function disneyPart<T>(settled: PromiseSettledResult<T>): DisneyPart<T> {
+  if (settled.status === "fulfilled") return { ok: true, value: settled.value }
+  const reason = settled.reason
+  if (reason instanceof DisneyError && reason.outcome === "unavailable") return { ok: false, outcome: "unavailable" }
+  return { ok: false, outcome: failureDetail(reason) === "檢測逾時" ? "timeout" : "error" }
+}
+
+/**
+ * 以裝置註冊回應的地區與支援狀態為準；首頁只用來補地區或確認「此地區未開放」。
+ * 首頁太大而逾時時不再拖累整項結果。純函式，方便離線測試。
+ */
+export function judgeDisney(
+  home: DisneyPart<string>,
+  location: DisneyPart<{ countryCode: string; supported: boolean }>,
+): ServiceResult {
+  if ((!home.ok && home.outcome === "unavailable") || (!location.ok && location.outcome === "unavailable")) {
+    return makeService("disney", "no", "", "此地區未開放")
+  }
+  if (location.ok) {
+    const region = location.value.countryCode || (home.ok ? home.value : "")
+    return location.value.supported
+      ? makeService("disney", "ok", region, "可觀看")
+      : makeService("disney", "soon", region, "即將上線")
+  }
+  return makeService("disney", "na", "", location.outcome === "timeout" ? "檢測逾時" : "檢測失敗")
+}
+
 async function checkDisney(): Promise<ServiceResult> {
   const [home, location] = await Promise.allSettled([disneyHome(), disneyLocation()])
-  const failed = home.status === "rejected" ? home.reason : location.status === "rejected" ? location.reason : null
-  if (failed || home.status !== "fulfilled" || location.status !== "fulfilled") {
-    return failed instanceof DisneyError && failed.outcome === "unavailable"
-      ? makeService("disney", "no", "", "此地區未開放")
-      : makeService("disney", "na", "", "檢測失敗")
-  }
-  const region = location.value.countryCode || home.value
-  return location.value.supported
-    ? makeService("disney", "ok", region, "可觀看")
-    : makeService("disney", "soon", region, "即將上線")
+  return judgeDisney(disneyPart(home), disneyPart(location))
 }
 
 // ── 巴哈姆特動畫瘋（僅限台灣 IP）─────────────────────────────
@@ -420,7 +451,7 @@ export async function checkServices(
 ): Promise<ServiceResult[]> {
   return Promise.all(SERVICES.map(async meta => {
     let result: ServiceResult
-    try { result = await withTimeout(checkService(meta.id, regionCode(fallbackRegion())), 12000) }
+    try { result = await withTimeout(checkService(meta.id, regionCode(fallbackRegion())), 15000) }
     catch { result = makeService(meta.id, "na", "", "檢測逾時") }
     try { onResult?.(result) } catch { /* 頁面已關閉 */ }
     return result
