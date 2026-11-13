@@ -4,6 +4,14 @@
 
 ## 未發布 - 2026-11-13
 
+### 動畫瘋檢測改照網頁版播放器流程
+
+- 實機結果：上一版已不再誤判成「不可用」，但 token 回「裝置驗證異常！」。
+- 改照 aniGamerPlus（2026-08 仍在維護）的流程：先開首頁取得訪客 cookie 與 `data-geo`，再要裝置 ID，最後要 token；三個請求共用 cookie，帶影片頁 `Referer`、`Origin`，token 加隨機 `hash`，不再在網址附加時間戳。
+- Cookie 同時從 `response.cookies` 與 `Set-Cookie` 標頭取得並合併。
+- 失敗時說明附上 cookie 數量（例如「檢測失敗：裝置驗證異常！（cookie 0）」），方便在手機上判斷問題出在哪一步。
+- 新增 3 項斷言，共 148 項通過。
+
 ### 修正動畫瘋在台灣誤判為不可用
 
 - 原因一：動畫瘋的 `token.php` 需要 `getdeviceid.php` 設定的 cookie，但 Scripting 的 `fetch` 不會自動保存或送出 cookie，原本沒有手動帶上，token 請求必定回錯誤。現在從回應的 `cookies` 取出後放進下一個請求的 `Cookie` 標頭。

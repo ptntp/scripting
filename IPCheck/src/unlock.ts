@@ -87,12 +87,43 @@ function cookieHeader(cookies: unknown): string {
     .join("; ")
 }
 
+/**
+ * 解析 Set-Cookie 標頭（多個 cookie 可能被合併成以逗號分隔的一行）。
+ * Expires 屬性裡的逗號後面接的是日期而不是 name=，不會被誤切。
+ */
+export function setCookiePairs(raw: string): string {
+  return String(raw || "")
+    .split(/,(?=\s*[A-Za-z0-9_.\-]+=)/)
+    .map((part) => part.split(";")[0].trim())
+    .filter((pair) => /^[^=\s]+=/.test(pair))
+    .join("; ")
+}
+
+/** 合併多段 Cookie 字串，同名時以後面的值為準。 */
+export function mergeCookies(...parts: string[]): string {
+  const jar = new Map<string, string>()
+  for (const part of parts) {
+    for (const pair of String(part || "").split(";")) {
+      const index = pair.indexOf("=")
+      if (index <= 0) continue
+      jar.set(pair.slice(0, index).trim(), pair.slice(index + 1).trim())
+    }
+  }
+  return [...jar].map(([name, value]) => `${name}=${value}`).join("; ")
+}
+
+export function cookieCount(cookie: string): number {
+  return String(cookie || "").split(";").filter((pair) => pair.includes("=")).length
+}
+
 async function request(url: string, init: {
   method?: string; headers?: Record<string, string>; body?: string; timeout?: number
+  /** 預設在網址加時間戳避免快取；網站會驗證參數時關掉 */
+  bust?: boolean
 } = {}): Promise<HttpResult> {
   const seconds = init.timeout ?? 6
   return withTimeout(async () => {
-    const response = await fetch(freshUrl(url), {
+    const response = await fetch(init.bust === false ? url : freshUrl(url), {
       method: init.method,
       headers: {
         "User-Agent": UA, "Accept-Language": "en", Accept: "*/*",
@@ -103,8 +134,11 @@ async function request(url: string, init: {
       timeout: seconds,
     })
     const text = await response.text()
-    let cookie = ""
-    try { cookie = cookieHeader((response as any).cookies) } catch { /* 舊版沒有 cookies 屬性 */ }
+    let fromList = ""
+    try { fromList = cookieHeader((response as any).cookies) } catch { /* 舊版沒有 cookies 屬性 */ }
+    let fromHeader = ""
+    try { fromHeader = setCookiePairs(response.headers.get("set-cookie") ?? "") } catch { /* 取不到標頭 */ }
+    const cookie = mergeCookies(fromHeader, fromList)
     return {
       status: response.status, text, url: response.url || url,
       header: (name: string) => response.headers.get(name) ?? "",
@@ -251,14 +285,15 @@ export function bahamutError(body: string): string {
  * 只有回應明確指出地區限制、或首頁判定不在開放地區時才算「不可用」；
  * 其他錯誤（cookie、裝置驗證、作品下架等）一律算「檢測失敗」，不誤判成地區限制。
  */
-export function parseBahamut(status: number, body: string, geo = ""): ServiceResult {
+export function parseBahamut(status: number, body: string, geo = "", debug = ""): ServiceResult {
   const region = regionCode(geo)
   if (status === 200 && body.includes("animeSn")) return makeService("bahamut", "ok", region || "TW", "可觀看")
   const message = bahamutError(body)
   if (/地區|地区|區域|区域|海外|region|country/i.test(message) || (region && !BAHAMUT_REGIONS.includes(region))) {
     return makeService("bahamut", "no", region, "此地區無法觀看")
   }
-  return makeService("bahamut", "na", region, message ? `檢測失敗：${message.slice(0, 24)}` : "檢測失敗")
+  const reason = message ? `檢測失敗：${message.slice(0, 24)}` : status ? `檢測失敗（HTTP ${status}）` : "檢測失敗"
+  return makeService("bahamut", "na", region, debug ? `${reason}（${debug}）` : reason)
 }
 
 /** 首頁 HTML 的 data-geo 屬性標示動畫瘋判定的地區。 */
@@ -266,20 +301,49 @@ export function bahamutGeo(html: string): string {
   return regionCode(String(html || "").match(/data-geo="([A-Za-z]{2})"/)?.[1])
 }
 
+function randomHash(length = 12): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+  let out = ""
+  for (let k = 0; k < length; k++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
+/**
+ * 依網頁版播放器的流程：先開首頁取得訪客 cookie 與 data-geo，再要裝置 ID，最後要播放 token。
+ * 三個請求共用同一組 cookie，並帶上影片頁的 Referer 與 Origin（流程對照 aniGamerPlus）。
+ */
 async function checkBahamut(): Promise<ServiceResult> {
+  const sn = "37783"
+  const xhr = {
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.6",
+    Accept: "application/json, text/javascript, */*; q=0.01",
+    Referer: `https://ani.gamer.com.tw/animeVideo.php?sn=${sn}`,
+    Origin: "https://ani.gamer.com.tw",
+    "X-Requested-With": "XMLHttpRequest",
+  }
   try {
-    const headers = { "Accept-Language": "zh-TW,zh;q=0.9", Referer: "https://ani.gamer.com.tw/" }
-    const device = await request("https://ani.gamer.com.tw/ajax/getdeviceid.php", { headers })
+    const home = await request("https://ani.gamer.com.tw/", {
+      bust: false, timeout: 6,
+      headers: { "Accept-Language": xhr["Accept-Language"], Accept: "text/html,application/xhtml+xml,*/*;q=0.8" },
+    }).catch(() => null)
+    const geo = home ? bahamutGeo(home.text) : ""
+    let jar = home?.cookie || ""
+
+    const device = await request("https://ani.gamer.com.tw/ajax/getdeviceid.php", {
+      bust: false, headers: jar ? { ...xhr, Cookie: jar } : xhr,
+    })
+    jar = mergeCookies(jar, device.cookie)
     let deviceId = ""
     try { deviceId = String(JSON.parse(device.text)?.deviceid || "") } catch { /* 非 JSON */ }
-    if (!deviceId) return makeService("bahamut", "na", "", device.status ? `檢測失敗（HTTP ${device.status}）` : "檢測失敗")
-    // token.php 需要 getdeviceid.php 設定的 cookie，否則會回錯誤。
-    const withCookie = device.cookie ? { ...headers, Cookie: device.cookie } : headers
-    const [token, home] = await Promise.all([
-      request(`https://ani.gamer.com.tw/ajax/token.php?adID=89422&sn=37783&device=${encodeURIComponent(deviceId)}`, { headers: withCookie }),
-      request("https://ani.gamer.com.tw/", { headers: withCookie }).catch(() => null),
-    ])
-    return parseBahamut(token.status, token.text, home ? bahamutGeo(home.text) : "")
+    if (!deviceId) {
+      return makeService("bahamut", "na", geo, device.status ? `檢測失敗（裝置 ID，HTTP ${device.status}）` : "檢測失敗（裝置 ID）")
+    }
+
+    const token = await request(
+      `https://ani.gamer.com.tw/ajax/token.php?adID=89422&sn=${sn}&device=${encodeURIComponent(deviceId)}&hash=${randomHash()}`,
+      { bust: false, headers: jar ? { ...xhr, Cookie: jar } : xhr },
+    )
+    return parseBahamut(token.status, token.text, geo, `cookie ${cookieCount(jar)}`)
   } catch { return makeService("bahamut", "na", "", "檢測失敗") }
 }
 

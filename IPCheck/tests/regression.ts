@@ -9,7 +9,7 @@ import { activeRiskFlags, hasKnownRiskFlags, shouldShowRiskScale } from "../util
 import { hasCoordinates } from "../utils/map"
 import { countryCode, detectNAT, flagOf, maskIP, parseTrace, regionOfName, widgetKind } from "../src/net"
 import { GLOBAL_LATENCY_URLS, QUIC_TRACE_URLS, TAIWAN_LATENCY_URLS, classifyInterfaces, isHttp3, mergeExit, splitServices } from "../src/diagnose"
-import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, bahamutError, bahamutGeo, parseYoutube,
+import { SERVICES, judgeChatGPT, judgeNetflix, judgeReach, makeService, netflixRegion, parseBahamut, bahamutError, bahamutGeo, setCookiePairs, mergeCookies, cookieCount, parseYoutube,
   regionCode, serviceStateText, toServiceInfo } from "../src/unlock"
 import { SERVICE_HOSTS, maskKey, matchServicePolicies, normalizeProtocol, parsePolicyGroups, parseRemoteSnapshot,
   policyLabel, protocolFromName, resolveSurgeInfo } from "../src/surge"
@@ -251,6 +251,11 @@ async function run() {
     && parseBahamut(200, '{"error":{"message":"裝置驗證失敗"}}', "TW").state === "na"
     && parseBahamut(200, '{"error":{"message":"裝置驗證失敗"}}', "TW").detail === "檢測失敗：裝置驗證失敗"
     && parseBahamut(0, "").state === "na")
+  check("Set-Cookie 合併標頭解析", () => setCookiePairs("a=1; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT, b=2; HttpOnly") === "a=1; b=2"
+    && setCookiePairs("") === "" && setCookiePairs("nologinuser=abc; domain=.gamer.com.tw") === "nologinuser=abc")
+  check("Cookie 合併與計數", () => mergeCookies("a=1; b=2", "b=3", "") === "a=1; b=3" && cookieCount("a=1; b=3") === 2 && cookieCount("") === 0)
+  check("動畫瘋失敗附除錯資訊", () => parseBahamut(200, '{"error":{"message":"裝置驗證異常！"}}', "TW", "cookie 0").detail === "檢測失敗：裝置驗證異常！（cookie 0）"
+    && parseBahamut(503, "", "", "").detail === "檢測失敗（HTTP 503）")
   check("動畫瘋首頁地區", () => bahamutGeo('<body data-geo="TW" class="x">') === "TW" && bahamutGeo("<body>") === ""
     && bahamutError('{"error":{"message":" 錯誤 "}}') === "錯誤" && bahamutError("oops") === "")
   check("連線檢測判定", () => judgeReach("claude", 403, "TW").state === "ok" && judgeReach("copilot", 451, "").state === "no"
