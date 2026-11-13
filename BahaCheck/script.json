@@ -1,0 +1,13 @@
+{
+  "icon": "checkmark.seal.fill",
+  "color": "#00A7C4",
+  "name": "Baha Check",
+  "version": "1.0.0",
+  "description": "巴哈姆特每日簽到：小型小工具顯示今日是否已簽到與連續簽到天數，尚未簽到時點一下即可簽到。帳號密碼與兩步驟驗證金鑰只存在本機 Keychain。",
+  "localizedNames": {
+    "zh": "Baha Check"
+  },
+  "localizedDescriptions": {
+    "zh": "巴哈姆特每日簽到：小型小工具顯示今日是否已簽到與連續簽到天數，尚未簽到時點一下即可簽到。帳號密碼與兩步驟驗證金鑰只存在本機 Keychain。"
+  }
+}
