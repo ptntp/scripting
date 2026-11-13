@@ -1,16 +1,18 @@
-// File: utils/unlock.ts
+// File: src/unlock.ts
 // 串流與 AI 服務解鎖檢測。
 // 深度檢測（判斷地區與可用程度）：YouTube Premium、Netflix、Disney+、巴哈姆特動畫瘋、ChatGPT。
 // 連線檢測（僅確認可連線與該服務實際出口地區）：Spotify、Prime Video、Claude、Gemini、Copilot、Grok、Perplexity。
 import { fetch } from "scripting"
-import { withTimeout } from "./geo"
-import { freshUrl, parseTrace } from "./diagnose"
+import { withTimeout } from "../utils/geo"
+import { freshUrl, parseTrace } from "./net"
+import type { ServiceInfo } from "./types"
 
 export type ServiceGroup = "media" | "ai"
 export type ServiceId =
   | "youtube" | "netflix" | "disney" | "bahamut" | "spotify" | "prime"
   | "chatgpt" | "claude" | "gemini" | "copilot" | "grok" | "perplexity"
-export type ServiceState = "ok" | "warn" | "soon" | "no" | "na"
+export type { ServiceState } from "./types"
+import type { ServiceState } from "./types"
 
 export interface ServiceResult {
   id: ServiceId
@@ -304,7 +306,7 @@ export async function checkServices(
 ): Promise<ServiceResult[]> {
   return Promise.all(SERVICES.map(async meta => {
     let result: ServiceResult
-    try { result = await withTimeout(checkService(meta.id, regionCode(fallbackRegion())), 15000) }
+    try { result = await withTimeout(checkService(meta.id, regionCode(fallbackRegion())), 12000) }
     catch { result = makeService(meta.id, "na", "", "檢測逾時") }
     try { onResult?.(result) } catch { /* 頁面已關閉 */ }
     return result
@@ -329,4 +331,25 @@ export function stateLabel(state: ServiceState): string {
 export function countUsable(list: ServiceResult[], group: ServiceGroup): { ok: number; total: number } {
   const items = list.filter(item => item.group === group)
   return { ok: items.filter(item => item.state === "ok" || item.state === "warn").length, total: items.length }
+}
+
+/** 轉成快照用的服務項目；沒有自行判定地區的服務以主要出口地區補上。 */
+export function toServiceInfo(result: ServiceResult, fallbackRegion = ""): ServiceInfo {
+  const usable = result.state === "ok" || result.state === "warn"
+  return {
+    id: result.id,
+    name: result.name,
+    ok: usable,
+    cc: result.region || (usable ? regionCode(fallbackRegion) : ""),
+    policy: "",
+    state: result.state,
+    note: result.detail,
+  }
+}
+
+/** 小工具與頁面共用的狀態文字；沒有 state 的項目（Surge 連線檢測）只分可用與失敗。 */
+export function serviceStateText(item: Pick<ServiceInfo, "ok" | "state">): string {
+  if (!item.state) return item.ok ? "可用" : "失敗"
+  return item.state === "ok" ? "可用" : item.state === "warn" ? "部分" : item.state === "soon" ? "將上線"
+    : item.state === "no" ? "不可用" : "未知"
 }

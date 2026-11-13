@@ -1,7 +1,7 @@
 {
-  "icon" : "antenna.radiowaves.left.and.right",
+  "icon" : "dot.radiowaves.left.and.right",
   "entry" : "index.tsx",
-  "description" : "IP 檢測：出口 IP、多來源位置對照、代理／風險評分、WebRTC 洩漏檢查，並整合網路診斷（延遲、NAT、HTTP/3）與串流／AI 服務解鎖檢測。",
+  "description" : "網路診斷雷達：出口 IP、純淨度、延遲、HTTP/3、串流與 AI 解鎖一張卡看完，可搭配 Surge；另有 IP 詳細檢測（多來源位置、風險評分、WebRTC）。",
   "localizedNames" : {
     "es" : "",
     "pt" : "",

@@ -10,15 +10,6 @@ import { lookupAddress, validIPAddress } from "./utils/lookup"
 import type { LookupResult } from "./utils/lookup"
 import { accessTypeLabel, detectionTime, locationDetails, networkDetails } from "./utils/details"
 import { activeRiskFlags, shouldShowRiskScale } from "./utils/flags"
-import { buildDiagSummary, buildWidgetSnapshot, saveDiagSummary, saveWidgetSnapshot } from "./utils/widget_sync"
-import { latencyLabel, localNetworkLabel, natLabel, runDiagnostics } from "./utils/diagnose"
-import type { DiagReport } from "./utils/diagnose"
-import { PENDING_DETAIL, checkServices, countUsable, mergeService, pendingServices, stateLabel } from "./utils/unlock"
-import type { ServiceGroup, ServiceId, ServiceResult, ServiceState } from "./utils/unlock"
-import {
-  fetchServicePolicies, getSurgeSettings, maskKey, parseSurgeSettings, policyLabel, readSurgeState, saveSurgeSettings,
-} from "./utils/surge"
-import type { SurgeState } from "./utils/surge"
 import { fetchGeoReport, sameIP, withTimeout } from "./utils/geo"
 import type { ExitObservation, GeoReport, GeoRow } from "./utils/geo"
 import { fetchIPPure } from "./utils/ippure"
@@ -42,18 +33,11 @@ type PageState = {
   pureLoading: boolean
   rtc: WebRTCReport | null
   rtcLoading: boolean
-  diag: DiagReport | null
-  diagLoading: boolean
-  services: ServiceResult[]
-  servicesLoading: boolean
-  surge: SurgeState | null
-  policies: Partial<Record<ServiceId, string>>
   updatedAt: string
 }
 const EMPTY: PageState = {
   loading: true, error: null, ip: "", source: "", manual: false,
-  result: null, geo: null, pure: null, pureLoading: true, rtc: null, rtcLoading: true,
-  diag: null, diagLoading: true, services: [], servicesLoading: true, surge: null, policies: {}, updatedAt: "",
+  result: null, geo: null, pure: null, pureLoading: true, rtc: null, rtcLoading: true, updatedAt: "",
 }
 const GEO_SOURCES = ["Cloudflare", "IP2Location", "DB-IP", "MaxMind", "IPInfo.io", "GeoJS"]
 const TITLE_BORDER = gradient("linear", {
@@ -391,141 +375,6 @@ function ExitRows({ state, privacy }: { state: PageState; privacy: boolean }) {
   </>
 }
 
-function stateTone(state: ServiceState): Color {
-  return state === "ok" ? ACCENT.green : state === "warn" ? ACCENT.orange
-    : state === "soon" ? ACCENT.blue : state === "no" ? ACCENT.red : ACCENT.violet
-}
-
-export function ServiceRows({ services, group, loading, policies = {} }: {
-  services: ServiceResult[]; group: ServiceGroup; loading: boolean
-  policies?: Partial<Record<ServiceId, string>>
-}) {
-  return <>
-    {services.filter(item => item.group === group).map(item => {
-      const pending = loading && item.detail === PENDING_DETAIL
-      const label = pending ? "檢測中" : item.region && item.state !== "no"
-        ? `${item.region} ${stateLabel(item.state)}` : stateLabel(item.state)
-      const detail = [item.detail, policyLabel(policies[item.id])].filter(Boolean).join(" · ")
-      return <Row key={item.id} label={item.name}>
-        <HStack spacing={8} alignment="center" frame={{ maxWidth: "infinity", alignment: "leading" }}>
-          <Tag text={label} color={pending ? ACCENT.violet : stateTone(item.state)} />
-          {!pending && detail ? <Text font={11} foregroundStyle="secondaryLabel"
-            lineLimit={2} fixedSize={{ horizontal: false, vertical: true }}
-            contentTransition="opacity">{detail}</Text> : null}
-        </HStack>
-      </Row>
-    })}
-  </>
-}
-
-function unlockHint(services: ServiceResult[], group: ServiceGroup, loading: boolean): string {
-  if (loading) return "檢測中…"
-  const { ok, total } = countUsable(services, group)
-  return `${ok}/${total} 可用`
-}
-
-function SettingField({ title, prompt, value, onChanged, numeric = false }: {
-  title: string; prompt: string; value: string; onChanged: (value: string) => void; numeric?: boolean
-}) {
-  return <Row label={title}>
-    <TextField title={title} prompt={prompt} value={value} onChanged={onChanged}
-      textFieldStyle="plain" font={13} fontDesign="monospaced" foregroundStyle={ACCENT.blue}
-      keyboardType={numeric ? "numberPad" : "asciiCapable"} textInputAutocapitalization="never" autocorrectionDisabled
-      frame={{ maxWidth: "infinity", alignment: "leading" }} />
-  </Row>
-}
-
-/** Surge 區塊：顯示目前節點，並可就地設定 HTTP API。x-key 只存在本機。 */
-export function SurgeSection({ surge, loading, onSaved }: {
-  surge: SurgeState | null; loading: boolean; onSaved: () => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [saved, setSaved] = useState(getSurgeSettings())
-  const [key, setKey] = useState(saved.key)
-  const [host, setHost] = useState(saved.host)
-  const [port, setPort] = useState(String(saved.port))
-  const configured = !!saved.key
-  const info = surge?.info
-
-  function toggle() {
-    animate(() => {
-      if (!editing) { setKey(saved.key); setHost(saved.host); setPort(String(saved.port)) }
-      setEditing(!editing)
-    }, Animation.easeOut(0.28))
-  }
-
-  function save() {
-    const next = saveSurgeSettings(parseSurgeSettings({ key, host, port: Number(port) }))
-    animate(() => { setSaved(next); setEditing(false) }, Animation.easeOut(0.28))
-    onSaved()
-  }
-
-  const status = !configured ? "未設定" : loading && !surge ? "讀取中" : surge?.status === "ok" ? "已連線" : "未連線"
-  return <Band title="Surge" icon="bolt.horizontal" hint={configured ? `x-key ${maskKey(saved.key)}` : "HTTP API"}
-    accessory={<IconButton icon={editing ? "xmark" : "gearshape"} label={editing ? "關閉 Surge 設定" : "Surge 設定"}
-      action={toggle} active={editing} />}
-    shaded order={7}>
-    {editing ? <VStack key="surge-edit" alignment="leading" spacing={0}
-      frame={{ maxWidth: "infinity", alignment: "leading" }} transition={Transition.opacity()}>
-      <SettingField title="x-key" prompt="http-api 的金鑰" value={key} onChanged={setKey} />
-      <SettingField title="主機" prompt="127.0.0.1" value={host} onChanged={setHost} />
-      <SettingField title="連接埠" prompt="6171" value={port} onChanged={setPort} numeric />
-      <Button action={save} buttonStyle="plain">
-        <HStack spacing={8} padding={{ vertical: 8 }}>
-          <Tag text="儲存並讀取" color={ACCENT.teal} />
-          <Text font={11} foregroundStyle="secondaryLabel">x-key 留空即停用</Text>
-        </HStack>
-      </Button>
-      <Note text="在 Surge 設定檔的 [General] 加入「http-api = 你的金鑰@127.0.0.1:6171」後填入相同金鑰。金鑰只儲存在這台裝置，不會上傳。" />
-    </VStack> : <VStack key="surge-view" alignment="leading" spacing={0}
-      frame={{ maxWidth: "infinity", alignment: "leading" }} transition={Transition.opacity()}>
-      <Row label="連線狀態">
-        <Tag text={status} color={status === "已連線" ? ACCENT.green : status === "未連線" ? ACCENT.orange : ACCENT.violet} />
-      </Row>
-      {info ? <>
-        <Row label="出站模式" value={info.mode} />
-        <Row label="目前節點" value={info.node || "—"} />
-        {info.protocol ? <Row label="協定" value={info.protocol} mono /> : null}
-        {info.policy ? <Row label="策略群組" value={info.policy} /> : null}
-      </> : null}
-      <Note text={!configured
-        ? "點右上角齒輪填入 Surge HTTP API 的 x-key，即可顯示目前節點，並標出每項解鎖檢測實際經過的策略。"
-        : surge?.note || "讀取 Surge 狀態中…"} />
-    </VStack>}
-  </Band>
-}
-
-export function DiagnosticsRows({ report, loading, exitIP, privacy }: {
-  report: DiagReport | null; loading: boolean; exitIP: string; privacy: boolean
-}) {
-  if (!report) {
-    return <HStack spacing={8} padding={{ vertical: 10 }}>
-      {loading ? <ProgressView controlSize="small" /> : null}
-      <Text font={12} foregroundStyle="secondaryLabel">{loading ? "正在量測延遲與協定…" : "本次未完成網路診斷"}</Text>
-    </HStack>
-  }
-  const local = report.local
-  const quic = report.quic
-  return <>
-    <Row label="連線類型" value={localNetworkLabel(local.type) + (local.vpn ? " · 偵測到 VPN 介面" : "")} />
-    <Row label="本機位址" value={local.ip ? formatIPAddress(local.ip, privacy) : "未取得"} mono />
-    <Row label="NAT" value={natLabel(local.ip, exitIP)} />
-    <Row label="IPv6" value={local.ipv6 ? "已取得全球位址" : "未取得全球位址"} />
-    <Row label="國際延遲" value={latencyLabel(report.latency.global)} mono
-      color={report.latency.global == null ? ACCENT.orange : undefined} />
-    <Row label="台灣延遲" value={latencyLabel(report.latency.taiwan)} mono
-      color={report.latency.taiwan == null ? ACCENT.orange : undefined} />
-    <Row label="HTTP/3">
-      <HStack spacing={8} alignment="center" frame={{ maxWidth: "infinity", alignment: "leading" }}>
-        <Tag text={quic.h3 ? "QUIC 可用" : quic.reachable ? "未使用 QUIC" : "無法判定"}
-          color={quic.h3 ? ACCENT.green : quic.reachable ? ACCENT.orange : ACCENT.violet} />
-        {quic.protocol ? <Text font={11} fontDesign="monospaced" foregroundStyle="secondaryLabel">{quic.protocol}</Text> : null}
-      </HStack>
-    </Row>
-    <Note text="延遲為最快端點的完整請求時間（含 DNS 與 TLS 交握），國際取 Cloudflare / Google、台灣取 HiNet / 中華電信 / TWNIC / 台大。NAT 僅依位址類別推估。" />
-  </>
-}
-
 export default function IPPage({ initialAddress }: { initialAddress?: string }) {
   const dismiss = Navigation.useDismiss()
   const [privacy, setPrivacy] = useState(getPrivacyMode())
@@ -541,7 +390,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
 
   function scheduleWidgetReload() {
     if (widgetTimer.current !== null) clearTimeout(widgetTimer.current)
-    // Storage 共享寫入在後台落盤；稍等再重新整理，避免小工具讀到上一份快照或舊隱私設定。
+    // 設定寫入在後台落盤；稍等再重新整理，避免小工具讀到舊的遮蔽設定。
     widgetTimer.current = setTimeout(() => {
       try { Widget.reloadUserWidgets() }
       catch (error) { console.log("[IP檢測] 小工具重新整理失敗", String(error)) }
@@ -554,10 +403,7 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
     animate(() => {
       setCopied(false)
       setMapExpanded(false)
-      setState({
-        ...EMPTY, ip: address || "", manual, rtcLoading: !manual,
-        diagLoading: !manual, servicesLoading: !manual, services: manual ? [] : pendingServices(),
-      })
+      setState({ ...EMPTY, ip: address || "", manual, rtcLoading: !manual })
       setQueryError("")
       setSearchOpen(false)
     }, Animation.easeOut(0.28))
@@ -570,29 +416,6 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
     const rtcTask = manual ? Promise.resolve() : fetchWebRTC(() => run === request.current)
       .then(rtc => update({ rtc, rtcLoading: false }))
       .catch(() => update({ rtc: { status: "error", candidates: [], errors: [], note: "WebRTC 檢測失敗，請重試。" }, rtcLoading: false }))
-    // 網路診斷與解鎖檢測只針對本機目前連線，與 IP 歸屬查詢並行、互不阻塞。
-    let exitCountry = ""
-    if (!manual) {
-      const diagTask = runDiagnostics()
-        .then(diag => { update({ diag, diagLoading: false }); return diag })
-        .catch(() => { update({ diagLoading: false }); return null })
-      const servicesTask = checkServices(() => exitCountry, item => {
-        if (run === request.current) animate(() => setState(previous => ({ ...previous, services: mergeService(previous.services, item) })))
-      }).then(services => { update({ services, servicesLoading: false }); return services })
-        .catch(() => { update({ servicesLoading: false }); return null })
-      // Surge：先讀目前節點；解鎖檢測跑完後再從請求紀錄對回各服務實際使用的策略。
-      if (getSurgeSettings().key) {
-        void readSurgeState().then(surge => update({ surge }))
-          .catch(() => update({ surge: { status: "error", info: null, note: "讀取 Surge 狀態失敗" } }))
-        void servicesTask.then(() => fetchServicePolicies()).then(policies => update({ policies }))
-          .catch(error => console.log("[IP檢測] Surge 策略對照失敗", String(error)))
-      }
-      void Promise.all([diagTask, servicesTask]).then(([diag, services]) => {
-        if (run !== request.current || !services) return
-        saveDiagSummary(buildDiagSummary(services, diag?.latency.global))
-        scheduleWidgetReload()
-      }).catch(error => console.log("[IP檢測] 診斷摘要寫入失敗", String(error)))
-    }
     try {
       if (!manual) {
         const probe = await withTimeout(fetchExitProbe(), 7000)
@@ -604,7 +427,6 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       update({ ip, source })
       const lookupTask = lookupAddress(ip, true)
         .then(result => {
-          exitCountry = result.info?.countryCode || ""
           update({ result, error: result.info ? null : "歸屬查詢暫不可用，已保留同位址風險資料" })
           return result
         })
@@ -618,33 +440,13 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
       const pureTask = fetchIPPure(ip, () => run === request.current)
         .then(pure => { update({ pure, pureLoading: false }); return pure })
         .catch(() => { update({ pureLoading: false }); return null })
-      const [result, , , pureReport] = await Promise.all([lookupTask, geoTask, rtcTask, pureTask])
+      await Promise.all([lookupTask, geoTask, rtcTask, pureTask])
       if (run !== request.current) return
       update({ loading: false, updatedAt: new Date().toLocaleTimeString("zh-TW", { hour12: false }) })
-      saveWidgetSnapshot(buildWidgetSnapshot({
-        ip,
-        info: result?.info ?? null,
-        reputation: result?.reputation ?? null,
-        pure: pureReport,
-      }))
-      scheduleWidgetReload()
     } catch (error) {
       await rtcTask
       update({ loading: false, pureLoading: false, error: String(error).replace(/^Error: /, "") })
     }
-  }
-
-  /** 儲存 Surge 設定後只重讀 Surge 狀態，不重跑整頁檢測。 */
-  function refreshSurge() {
-    const run = request.current
-    const apply = (patch: Partial<PageState>) => {
-      if (run === request.current) animate(() => setState(previous => ({ ...previous, ...patch })))
-    }
-    apply({ surge: null, policies: {} })
-    if (!getSurgeSettings().key) return
-    void readSurgeState().then(surge => apply({ surge }))
-      .catch(() => apply({ surge: { status: "error", info: null, note: "讀取 Surge 狀態失敗" } }))
-    void fetchServicePolicies().then(policies => apply({ policies })).catch(() => {})
   }
 
   function search() {
@@ -819,21 +621,6 @@ export default function IPPage({ initialAddress }: { initialAddress?: string }) 
           <Band title="洩露檢測" icon="network" hint="WebRTC · 出口對照" order={6}>
             <ExitRows state={state} privacy={privacy} />
           </Band>
-
-          {!state.manual ? <>
-            <SurgeSection surge={state.surge} loading={state.servicesLoading} onSaved={refreshSurge} />
-            <Band title="網路診斷" icon="waveform.path.ecg" hint="延遲 · NAT · QUIC" order={8}>
-              <DiagnosticsRows report={state.diag} loading={state.diagLoading} exitIP={state.ip} privacy={privacy} />
-            </Band>
-            <Band title="串流解鎖" icon="play.tv" hint={unlockHint(state.services, "media", state.servicesLoading)} shaded order={9}>
-              <ServiceRows services={state.services} group="media" loading={state.servicesLoading} policies={state.policies} />
-              <Note text="YouTube、Netflix、Disney+、動畫瘋會判斷地區與可觀看範圍；Spotify、Prime Video 僅確認可連線。" />
-            </Band>
-            <Band title="AI 服務" icon="sparkles" hint={unlockHint(state.services, "ai", state.servicesLoading)} order={10}>
-              <ServiceRows services={state.services} group="ai" loading={state.servicesLoading} policies={state.policies} />
-              <Note text="ChatGPT 會比對支援地區與 App 限制；其餘僅確認可連線，地區為該服務實際看到的出口，不代表帳號可在當地註冊或付費。" />
-            </Band>
-          </> : null}
         </VStack>
         <HStack spacing={5} padding={{ top: 13 }} foregroundStyle="secondaryLabel">
           <Image systemName="arrow.down" font={9} />

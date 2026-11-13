@@ -1,6 +1,7 @@
-// File: utils/surge.ts
+// File: src/surge.ts
 // Surge HTTP API：讀取出站模式、目前節點與協定，並把每項解鎖檢測對回實際承載的策略。
 // x-key 只存在本機 Storage，不會寫入 repo 或傳到 Surge 以外的任何地方。
+// 另可讀取 Surge 腳本以 SYNC 參數同步出來的快照。
 //
 // 使用端點（Surge iOS 5.x）：
 //   GET /v1/outbound         → {"mode":"rule|proxy|direct"}
@@ -8,22 +9,15 @@
 //   GET /v1/policy_groups/select?group_name=… → {"policy":"目前選擇"}
 //   GET /v1/requests/recent  → {"requests":[{id, remoteHost, URL, policyName, …}]}
 import { fetch } from "scripting"
-import { withTimeout } from "./geo"
-import type { ServiceId } from "./unlock"
+import { withTimeout } from "../utils/geo"
+import { httpJson } from "./net"
+import type { Settings } from "./store"
+import type { ServiceInfo, Snapshot, SurgeInfo } from "./types"
+import { EMPTY_EXIT, EMPTY_LOCAL } from "./types"
 
-export const SURGE_SETTINGS_KEY = "ip-detection.surge.v1"
+export type { SurgeInfo } from "./types"
+type SurgeSettings = Pick<Settings, "surgeKey" | "surgeHost" | "surgePort">
 
-export interface SurgeSettings { key: string; host: string; port: number }
-export const DEFAULT_SURGE_SETTINGS: SurgeSettings = { key: "", host: "127.0.0.1", port: 6171 }
-
-export interface SurgeInfo {
-  /** 出站模式的顯示文字 */
-  mode: string
-  /** 目前節點所屬的策略群組 */
-  policy: string
-  node: string
-  protocol: string
-}
 export interface SurgeState {
   status: "off" | "ok" | "error"
   info: SurgeInfo | null
@@ -32,28 +26,6 @@ export interface SurgeState {
 }
 
 const text = (value: unknown): string => typeof value === "string" ? value.trim() : ""
-
-export function parseSurgeSettings(raw: unknown): SurgeSettings {
-  const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {}
-  const port = Number(data.port)
-  const host = text(data.host)
-  return {
-    key: text(data.key),
-    host: /^[A-Za-z0-9.\-:[\]]+$/.test(host) ? host : DEFAULT_SURGE_SETTINGS.host,
-    port: Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_SURGE_SETTINGS.port,
-  }
-}
-
-export function getSurgeSettings(): SurgeSettings {
-  try { return parseSurgeSettings(Storage.get<unknown>(SURGE_SETTINGS_KEY)) }
-  catch { return { ...DEFAULT_SURGE_SETTINGS } }
-}
-
-export function saveSurgeSettings(settings: SurgeSettings): SurgeSettings {
-  const next = parseSurgeSettings(settings)
-  Storage.set(SURGE_SETTINGS_KEY, next)
-  return next
-}
 
 /** 顯示用：只露出頭尾各兩碼。 */
 export function maskKey(key: string): string {
@@ -228,9 +200,10 @@ export function resolveSurgeInfo(
 async function api(settings: SurgeSettings, path: string, seconds = 3): Promise<{ status: number; data: any }> {
   try {
     return await withTimeout(async () => {
-      const host = settings.host.includes(":") && !settings.host.startsWith("[") ? `[${settings.host}]` : settings.host
-      const response = await fetch(`http://${host}:${settings.port}${path}`, {
-        timeout: seconds, headers: { "X-Key": settings.key, Accept: "application/json" },
+      const raw = settings.surgeHost
+      const host = raw.includes(":") && !raw.startsWith("[") ? `[${raw}]` : raw
+      const response = await fetch(`http://${host}:${settings.surgePort}${path}`, {
+        timeout: seconds, headers: { "X-Key": settings.surgeKey, Accept: "application/json" },
       })
       let data: any = null
       try { data = await response.json() } catch { /* 非 JSON 回應 */ }
@@ -239,8 +212,8 @@ async function api(settings: SurgeSettings, path: string, seconds = 3): Promise<
   } catch { return { status: 0, data: null } }
 }
 
-export async function readSurgeState(settings = getSurgeSettings()): Promise<SurgeState> {
-  if (!settings.key) return { status: "off", info: null, note: "尚未設定 x-key" }
+export async function readSurgeState(settings: SurgeSettings): Promise<SurgeState> {
+  if (!settings.surgeKey) return { status: "off", info: null, note: "尚未設定 x-key" }
   const [outbound, groups, recent] = await Promise.all([
     api(settings, "/v1/outbound"), api(settings, "/v1/policy_groups"), api(settings, "/v1/requests/recent"),
   ])
@@ -265,7 +238,7 @@ export async function readSurgeState(settings = getSurgeSettings()): Promise<Sur
 }
 
 /** 各服務在請求紀錄中對應的網域（不含 www.）。 */
-export const SERVICE_HOSTS: Record<ServiceId, string[]> = {
+export const SERVICE_HOSTS: Record<string, string[]> = {
   youtube: ["youtube.com"],
   netflix: ["netflix.com"],
   disney: ["disneyplus.com", "bamgrid.com"],
@@ -289,9 +262,9 @@ function requestHost(item: any): string {
  * 從請求紀錄找出每項服務最近一次請求實際使用的策略。
  * 結果可能是節點名稱、DIRECT（規則直連）或 REJECT（被規則攔截）。
  */
-export function matchServicePolicies(recentData: unknown): Partial<Record<ServiceId, string>> {
-  const result: Partial<Record<ServiceId, string>> = {}
-  const latest: Partial<Record<ServiceId, number>> = {}
+export function matchServicePolicies(recentData: unknown): Record<string, string> {
+  const result: Record<string, string> = {}
+  const latest: Record<string, number> = {}
   for (const item of recentRequests(recentData)) {
     const policy = text(item?.policyName)
     // QUIC 被擋的那筆不代表實際出站（另有一筆 TCP 紀錄）。
@@ -299,7 +272,7 @@ export function matchServicePolicies(recentData: unknown): Partial<Record<Servic
     const host = requestHost(item)
     if (!host) continue
     const id = Number(item?.id) || 0
-    for (const [service, hosts] of Object.entries(SERVICE_HOSTS) as [ServiceId, string[]][]) {
+    for (const [service, hosts] of Object.entries(SERVICE_HOSTS)) {
       if (!hosts.some(wanted => host === wanted || host.endsWith(`.${wanted}`))) continue
       if ((latest[service] ?? -1) > id) continue
       latest[service] = id
@@ -309,8 +282,8 @@ export function matchServicePolicies(recentData: unknown): Partial<Record<Servic
   return result
 }
 
-export async function fetchServicePolicies(settings = getSurgeSettings()): Promise<Partial<Record<ServiceId, string>>> {
-  if (!settings.key) return {}
+export async function fetchServicePolicies(settings: SurgeSettings): Promise<Record<string, string>> {
+  if (!settings.surgeKey) return {}
   const recent = await api(settings, "/v1/requests/recent", 4)
   return recent.status === 200 ? matchServicePolicies(recent.data) : {}
 }
@@ -321,4 +294,54 @@ export function policyLabel(policy: string | undefined): string {
   if (/^DIRECT$/i.test(policy)) return "直連"
   if (/^REJECT/i.test(policy)) return "被規則攔截"
   return `經 ${policy}`
+}
+
+/** 連不上或未設定時回傳 null，讓呼叫端保留快照裡原有的資訊。 */
+export async function fetchSurgeState(settings: SurgeSettings): Promise<SurgeInfo | null> {
+  return (await readSurgeState(settings)).info
+}
+
+function serviceList(value: unknown): ServiceInfo[] {
+  if (!Array.isArray(value)) return []
+  return value.filter(item => item && typeof item === "object" && text(item.id)).map(item => ({
+    id: text(item.id),
+    name: text(item.name) || text(item.id),
+    ok: item.ok === true,
+    cc: text(item.cc),
+    policy: text(item.policy),
+    ...(typeof item.state === "string" ? { state: item.state } : {}),
+    ...(typeof item.note === "string" ? { note: item.note } : {}),
+  }))
+}
+
+/** 驗證並整理外部快照；格式不符回傳 null。純函式，方便離線測試。 */
+export function parseRemoteSnapshot(data: any): Snapshot | null {
+  if (!data || typeof data !== "object") return null
+  if (!data.exit || typeof data.exit !== "object" || !data.local || typeof data.local !== "object") return null
+  const ts = Number(data.ts)
+  if (!Number.isFinite(ts) || ts <= 0) return null
+  const surge = data.surge && typeof data.surge === "object" ? {
+    mode: text(data.surge.mode), policy: text(data.surge.policy),
+    protocol: text(data.surge.protocol), node: text(data.surge.node),
+  } : undefined
+  return {
+    v: 1,
+    ts,
+    src: data.src === "surge" ? "surge" : "self",
+    masked: data.masked === true,
+    exit: { ...EMPTY_EXIT, ...data.exit, purity: Math.max(0, Math.min(100, Number(data.exit.purity) || 0)) },
+    local: { ...EMPTY_LOCAL, ...data.local },
+    lat: { proxy: Number(data?.lat?.proxy) || 0, local: Number(data?.lat?.local) || 0 },
+    quic: { ok: data?.quic?.ok === true, reachable: data?.quic?.reachable === true },
+    media: serviceList(data.media),
+    ai: serviceList(data.ai),
+    surge,
+    cost: Number(data.cost) || 0,
+  }
+}
+
+export async function fetchRemoteSnapshot(url: string): Promise<Snapshot | null> {
+  if (!/^https?:\/\//i.test(url)) return null
+  const result = await httpJson<any>(url, 6000)
+  return parseRemoteSnapshot(result.data)
 }
