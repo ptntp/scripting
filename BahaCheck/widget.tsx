@@ -1,18 +1,13 @@
-// 小型：只顯示主站簽到（未簽到時點一下簽到；已簽到顯示連續天數）。
+// 小型：只顯示主站簽到（已簽到顯示連續天數）。
 // 中型：左邊主站簽到，右邊公會簽到、動畫瘋答題、廣告雙倍。
-// 不論大小，小工具每次更新都會在背景自動執行公會、答題、廣告雙倍（廣告需主站已簽到）。
+// 不論大小，小工具每次更新都會在背景自動簽到，並自動執行公會、答題、廣告雙倍。
+// 自動簽到失敗或還沒輪到更新時，點小工具可以立即執行。
 import { Button, HStack, Image, Rectangle, Spacer, Text, VStack, Widget } from "scripting"
 import { RunAllIntent, SignInIntent } from "./app_intents"
 import type { DayState, Extra, WidgetState } from "./src/baha"
-import {
-  getState,
-  hasCredentials,
-  needsRefresh,
-  runCheck,
-  widgetStateOf,
-} from "./src/baha"
+import { getState, hasCredentials, widgetStateOf } from "./src/baha"
 import type { Tone } from "./src/extras"
-import { adRunning, allDone, autoExtras, describeExtra, nextReload, todayExtras } from "./src/extras"
+import { adRunning, allDone, autoAll, describeExtra, nextReload, todayExtras } from "./src/extras"
 
 const BRAND = "#00A7C4"
 const GREEN = "#2EB872"
@@ -215,10 +210,8 @@ async function main() {
   const medium = Widget.family === "systemMedium" || Widget.family === "systemLarge" || Widget.family === "systemExtraLarge"
   let state = getState()
   if (configured) {
-    // 1. 主站：只查狀態（簽到要點小工具）
-    if (needsRefresh(state)) state = (await timeout(runCheck(false), 12_000)) ?? getState()
-    // 2. 公會、答題、廣告雙倍：背景自動執行（不等待，廣告下次更新再領）
-    state = (await timeout(autoExtras(), 15_000)) ?? getState()
+    // 主站自動簽到 → 公會、答題、廣告雙倍（不等待，廣告下次更新再領）
+    state = (await timeout(autoAll(), 28_000)) ?? getState()
   }
   const now = Date.now()
   const view = widgetStateOf(state, configured, now)
