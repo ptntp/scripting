@@ -566,7 +566,9 @@ test("自動執行：答案未公布或失敗時隔 30 分鐘再試", async () =
   routes.push({ match: "owner=blackXblue", body: { creation: [] } })
   let state = await extras.autoExtras()
   assert.equal(state.quiz.state, "wait")
-  assert.equal(extras.nextReload(state, true), clock + 31 * 60_000)
+  // 答題 31 分鐘後可重試；主站未簽到 30 分鐘後重試，取較早者
+  assert.equal(extras.nextReload(state, true), clock + 30 * 60_000)
+  assert.equal(extras.nextReload({ ...state, signed: true, ads: baha.makeExtra("done", "已領取") }, true), clock + 31 * 60_000)
 
   calls = []
   clock += 20 * 60_000
@@ -638,4 +640,64 @@ test("自動執行：cookie 失效時重新登入一次再繼續", async () => {
   assert.equal(routes.length, 0)
   assert.deepEqual([state.guild.state, state.quiz.state], ["skip", "done"])
   assert.equal(keychain.get("baha_cookie"), "BAHARUNE=rune1; BAHAID=me")
+})
+
+// ── 主站自動簽到 ──
+
+test("自動簽到：小工具更新時先簽到，同一次就開始廣告、公會、答題", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  routes.push(
+    status(0, 4),
+    { match: "get_csrf_token.php", body: "signtoken000000000" },
+    { match: "signin.php", body: { data: { days: 5 } } },
+    { match: "get_csrf_token.php", body: "adtoken123456789" },
+    { match: "sign_in_ad_start.php", body: { data: { finished: 0 } } },
+    { match: "topBar.php", body: "<div></div>" },
+    ...QUIZ_OK,
+  )
+  const state = await extras.autoAll()
+  assert.equal(routes.length, 0)
+  assert.deepEqual([state.signed, state.days, state.ads.state, state.guild.state, state.quiz.state], [true, 5, "running", "skip", "done"])
+  assert.deepEqual(baha.widgetStateOf(state, true), { kind: "signed", days: 5 })
+
+  // 已簽到：之後的更新不再查主站
+  calls = []
+  clock += 40_000
+  routes.push({ match: "sign_in_ad_finished.php", body: { data: { finished: 1 } } })
+  await extras.autoAll()
+  assert.deepEqual(calls.map((c) => c.url.includes("ad_finished")), [true])
+})
+
+test("自動簽到：失敗時 30 分鐘後再試；帳密被拒則當天不再自動登入", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  baha.patchState({ guild: baha.makeExtra("skip", "未加入公會"), quiz: baha.makeExtra("done", "已作答") })
+  routes.push({ match: "signin.php", status: 502, body: "<html>Bad Gateway</html>" })
+  let state = await extras.autoAll()
+  assert.equal(state.signed, false)
+  assert.equal(state.errorCode, "API")
+  assert.equal(extras.nextReload(state, true), clock + 30 * 60_000)
+
+  // 5 分鐘內的更新不重試
+  calls = []
+  clock += 3 * 60_000
+  await extras.autoAll()
+  assert.equal(calls.length, 0)
+
+  // 換成帳密錯誤
+  keychain.delete("baha_cookie")
+  clock += 30 * 60_000
+  routes.push({ match: "do_login.php", body: { code: 0, message: "帳號、密碼或驗證碼錯誤！" } })
+  state = await extras.autoAll()
+  assert.equal(state.errorCode, "LOGIN")
+  calls = []
+  clock += 2 * 3600_000
+  await extras.autoAll()
+  assert.equal(calls.length, 0)
+})
+
+test("自動簽到：未設定帳號時什麼都不做", async () => {
+  assert.equal(await extras.autoAll(), null)
+  assert.equal(calls.length, 0)
 })

@@ -190,7 +190,7 @@ function App() {
 
         <Section
           header={<Text>公會／動畫瘋／廣告</Text>}
-          footer={<Text>這三項會在小工具每次更新時自動執行（只在中尺寸小工具顯示）：公會與答題不需簽到，廣告雙倍在主站簽到後自動領取（開始後下次更新再領獎勵）。失敗或答案未公布時約 30 分鐘後自動重試。更新時間由 iOS 安排，可能有延遲；想立刻完成可按「全部執行」（廣告需等約 30 秒）。動畫瘋答案取自每日公布答案的小屋文章，不保證正確。</Text>}
+          footer={<Text>這三項會在小工具每次更新時自動執行（只在中尺寸小工具顯示）：公會與答題不需簽到，廣告雙倍在主站自動簽到後開始（下次更新再領獎勵）。失敗或答案未公布時約 30 分鐘後自動重試。更新時間由 iOS 安排，可能有延遲；想立刻完成可按「全部執行」（廣告需等約 30 秒）。動畫瘋答案取自每日公布答案的小屋文章，不保證正確。</Text>}
         >
           <ExtraRow title="公會簽到" extra={extras.guild} />
           <ExtraRow title="動畫瘋答題" extra={extras.quiz} />
@@ -218,7 +218,7 @@ function App() {
           {account.hasTotp ? <Button title="移除兩步驟驗證金鑰" role="destructive" action={removeTotp} /> : null}
         </Section>
 
-        <Section header={<Text>小工具</Text>} footer={<Text>主畫面加入 Scripting 小工具並選擇本腳本。小型只處理主站簽到；中型另外顯示公會、答題、廣告，點一下全部執行。</Text>}>
+        <Section header={<Text>小工具</Text>} footer={<Text>主畫面加入 Scripting 小工具並選擇本腳本。小工具每次更新時會自動簽到並執行其他項目；小型只顯示主站簽到，中型另外顯示公會、答題、廣告。自動簽到失敗或想立刻完成時，點小工具即可。</Text>}>
           <Button title="預覽小型（主站簽到）" systemImage="square" action={() => Widget.preview({ family: "systemSmall" })} />
           <Button title="預覽中型（含公會、答題、廣告）" systemImage="rectangle" action={() => Widget.preview({ family: "systemMedium" })} />
         </Section>

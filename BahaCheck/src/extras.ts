@@ -1,4 +1,4 @@
-// 其他每日項目：公會簽到、動畫瘋答題、廣告雙倍巴幣（只在中尺寸小工具顯示，會自動執行）。
+// 自動執行：主站簽到，以及公會簽到、動畫瘋答題、廣告雙倍巴幣（後三項只在中尺寸小工具顯示）。
 // 流程參考 jkgtw/Surge 的 BahamutDailyBonus.js。
 import type { DayState, Extra } from "./baha"
 import {
@@ -21,11 +21,13 @@ import {
   makeExtra,
   mergeCookies,
   messageOf,
+  needsRefresh,
   nextTaipeiMidnight,
   parseJSON,
   patchState,
   releaseLock,
   requireCredentials,
+  runCheck,
   setAdToken,
   sleep,
   taipeiDate,
@@ -383,6 +385,16 @@ export async function autoExtras(now: number = Date.now()): Promise<DayState | n
   return getState()
 }
 
+/**
+ * 小工具每次更新時的完整自動流程：主站沒簽到就自動簽到 → 公會、答題、廣告雙倍。
+ * 主站簽到後同一次更新就會開始看廣告。不會丟出例外。
+ */
+export async function autoAll(now: number = Date.now()): Promise<DayState | null> {
+  if (!hasCredentials()) return getState()
+  if (needsRefresh(getState(), now)) await runCheck(true)
+  return autoExtras()
+}
+
 /** 下次更新小工具的時間 */
 export function nextReload(state: DayState | null, configured: boolean, now: number = Date.now()): number {
   const hourly = now + 60 * MIN
@@ -398,6 +410,8 @@ export function nextReload(state: DayState | null, configured: boolean, now: num
   const retries = [today.guild, today.quiz, today.signed ? ads : undefined]
     .filter((extra): extra is Extra => !!extra && !isFinal(extra))
     .map((extra) => extra.at + RETRY_AFTER + MIN)
+  // 主站自動簽到失敗（例如網路問題）：30 分鐘後再試
+  if (!today.signed) retries.push(today.checkedAt + RETRY_AFTER)
   return Math.min(hourly, ...retries.map((at) => Math.max(now + 5 * MIN, at)))
 }
 
