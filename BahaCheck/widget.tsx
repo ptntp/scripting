@@ -1,5 +1,6 @@
 // 小型：只顯示主站簽到（未簽到時點一下簽到；已簽到顯示連續天數）。
-// 中型：左邊主站簽到，右邊公會簽到、動畫瘋答題、廣告雙倍；有未完成項目時點一下全部執行。
+// 中型：左邊主站簽到，右邊公會簽到、動畫瘋答題、廣告雙倍。
+// 不論大小，小工具每次更新都會在背景自動執行公會、答題、廣告雙倍（廣告需主站已簽到）。
 import { Button, HStack, Image, Rectangle, Spacer, Text, VStack, Widget } from "scripting"
 import { RunAllIntent, SignInIntent } from "./app_intents"
 import type { DayState, Extra, WidgetState } from "./src/baha"
@@ -7,12 +8,11 @@ import {
   getState,
   hasCredentials,
   needsRefresh,
-  nextTaipeiMidnight,
   runCheck,
   widgetStateOf,
 } from "./src/baha"
 import type { Tone } from "./src/extras"
-import { adRunning, allDone, describeExtra, todayExtras } from "./src/extras"
+import { adRunning, allDone, autoExtras, describeExtra, nextReload, todayExtras } from "./src/extras"
 
 const BRAND = "#00A7C4"
 const GREEN = "#2EB872"
@@ -121,8 +121,8 @@ function SetupView() {
 
 // ── 中型 ──
 
-function ExtraRow({ icon, title, extra, now }: { icon: string; title: string; extra?: Extra; now: number }) {
-  const { text, tone } = describeExtra(extra, now)
+function ExtraRow({ icon, title, extra, emptyText }: { icon: string; title: string; extra?: Extra; emptyText?: string }) {
+  const { text, tone } = describeExtra(extra, emptyText)
   const color = TONE[tone]
   return (
     <HStack spacing={8}>
@@ -171,7 +171,12 @@ function MainColumn({ view, done, signed }: { view: WidgetState; done: boolean; 
             <Image systemName="checkmark.circle.fill" font={12} foregroundStyle={GREEN} />
             <Text font={12} fontWeight="semibold" foregroundStyle={GREEN}>今日全部完成</Text>
           </HStack>
-        : <TapHint title={signed ? "點擊執行其餘" : "點擊全部執行"} color={BRAND} />}
+        : signed
+          ? <HStack spacing={4}>
+              <Image systemName="arrow.triangle.2.circlepath" font={11} foregroundStyle="secondaryLabel" />
+              <Text font={12} foregroundStyle="secondaryLabel" lineLimit={1}>其餘項目自動執行</Text>
+            </HStack>
+          : <TapHint title={view.kind === "error" ? "點擊重試" : "點擊簽到"} color={BRAND} />}
     </VStack>
   )
 }
@@ -188,13 +193,14 @@ function MediumView({ view, state, now }: { view: WidgetState; state: DayState |
       </VStack>
       <Rectangle fill={DIVIDER} frame={{ width: 0.5 }} />
       <VStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "leading" }}>
-        <ExtraRow icon="person.3.fill" title="公會簽到" extra={extras.guild} now={now} />
-        <ExtraRow icon="questionmark.bubble.fill" title="動畫瘋答題" extra={extras.quiz} now={now} />
-        <ExtraRow icon="gift.fill" title="廣告雙倍" extra={extras.ads} now={now} />
+        <ExtraRow icon="person.3.fill" title="公會簽到" extra={extras.guild} />
+        <ExtraRow icon="questionmark.bubble.fill" title="動畫瘋答題" extra={extras.quiz} />
+        <ExtraRow icon="gift.fill" title="廣告雙倍" extra={extras.ads}
+          emptyText={view.kind === "signed" ? "等待執行" : "簽到後自動領"} />
       </VStack>
     </HStack>
   )
-  // 全部完成或廣告正在領取時不接受點擊，避免重複執行
+  // 點擊＝立即全部執行（含主站簽到）；全部完成或廣告正在領取時不接受點擊，避免重複執行
   return <Card intent={done || running ? undefined : RunAllIntent(undefined)}>{content}</Card>
 }
 
@@ -208,19 +214,17 @@ async function main() {
   const configured = hasCredentials()
   const medium = Widget.family === "systemMedium" || Widget.family === "systemLarge" || Widget.family === "systemExtraLarge"
   let state = getState()
-  if (configured && needsRefresh(state)) {
-    state = (await timeout(runCheck(false), 25_000)) ?? getState()
+  if (configured) {
+    // 1. 主站：只查狀態（簽到要點小工具）
+    if (needsRefresh(state)) state = (await timeout(runCheck(false), 12_000)) ?? getState()
+    // 2. 公會、答題、廣告雙倍：背景自動執行（不等待，廣告下次更新再領）
+    state = (await timeout(autoExtras(), 15_000)) ?? getState()
   }
   const now = Date.now()
   const view = widgetStateOf(state, configured, now)
 
-  let reload: number
-  if (medium && adRunning(state, now)) reload = now + 60_000 // 廣告領取中：一分鐘後看結果
-  else if (view.kind === "signed" && (!medium || allDone(state, now))) reload = nextTaipeiMidnight(now) + 2 * 60_000
-  else reload = now + 60 * 60_000 // 其他狀態每小時檢查一次（期間若在別處簽到也會更新）
-
   Widget.present(medium ? <MediumView view={view} state={state} now={now} /> : <SmallView view={view} />, {
-    reloadPolicy: { policy: "after", date: new Date(reload) },
+    reloadPolicy: { policy: "after", date: new Date(nextReload(state, configured, now)) },
   })
 }
 

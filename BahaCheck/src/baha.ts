@@ -27,6 +27,7 @@ const K_TOTP = "baha_totp"
 const K_COOKIE = "baha_cookie"
 const K_AD_TOKEN = "baha_ad_token"
 const STATE_KEY = "baha_state_v1"
+const LOCK_KEY = "baha_lock_v1"
 
 export const MIN = 60_000
 const TAIPEI_OFFSET = 8 * 3600_000
@@ -399,6 +400,10 @@ export function saveCredentials(input: { uid: string; pwd?: string; totp?: strin
   }
   Keychain.set(K_UID, uid)
   if (old.toLowerCase() !== uid.toLowerCase()) clearSession()
+  else if (getState()?.errorCode === "LOGIN") {
+    // 改了密碼或金鑰：清掉「帳密被拒」，讓小工具恢復自動執行
+    patchState({ error: undefined, errorCode: undefined, checkedAt: 0 })
+  }
 }
 
 /** 只清掉登入 cookie 與今日狀態（下次會重新登入）。 */
@@ -407,6 +412,7 @@ export function clearSession(): void {
     try { Keychain.remove(key) } catch (_) {}
   }
   try { Storage.remove(STATE_KEY) } catch (_) {}
+  releaseLock()
 }
 
 /** 清除所有本機資料（帳號、密碼、金鑰、cookie、狀態）。 */
@@ -565,6 +571,22 @@ export function widgetStateOf(state: DayState | null, configured: boolean, now: 
   return { kind: "unsigned" }
 }
 
+// ── 執行鎖（小型、中型小工具與按鈕可能同時更新，避免重複送出）──────────
+
+/** 取得執行鎖；別人持有且未逾時就回傳 false。 */
+export function acquireLock(ttl: number = 90_000, now: number = Date.now()): boolean {
+  try {
+    const held = Number(Storage.get<any>(LOCK_KEY)) || 0
+    if (held && now - held >= 0 && now - held < ttl) return false
+    Storage.set(LOCK_KEY, String(now))
+  } catch (_) {}
+  return true
+}
+
+export function releaseLock(): void {
+  try { Storage.remove(LOCK_KEY) } catch (_) {}
+}
+
 // ── 登入工作階段 ──────────────────────────────────────────────
 
 export function requireCredentials(): Credentials {
@@ -582,6 +604,8 @@ export class Session {
   cookie: string
   nickname: string | undefined
   loggedIn = false
+  /** 這次執行中帳密被拒（之後的項目都不用再試） */
+  loginError: BahaError | null = null
 
   constructor(creds: Credentials) {
     this.creds = creds
@@ -591,9 +615,19 @@ export class Session {
   async relogin(): Promise<void> {
     if (this.loggedIn) throw new BahaError("NO_LOGIN", "登入狀態失效")
     this.loggedIn = true
-    const result = await login(this.creds)
-    this.nickname = result.nickname
-    this.update(result.cookie)
+    try {
+      const result = await login(this.creds)
+      this.nickname = result.nickname
+      this.update(result.cookie)
+    } catch (error) {
+      if (error instanceof BahaError && error.code === "LOGIN") this.loginError = error
+      throw error
+    }
+  }
+
+  /** 確保有登入 cookie（沒有就登入一次） */
+  async ensure(): Promise<void> {
+    if (!hasSession(this.cookie)) await this.relogin()
   }
 
   update(cookie: string): void {
@@ -602,7 +636,8 @@ export class Session {
   }
 
   async run<R extends { cookie: string }>(task: (cookie: string) => Promise<R>): Promise<R> {
-    if (!hasSession(this.cookie)) await this.relogin()
+    if (this.loginError) throw this.loginError
+    await this.ensure()
     let result: R
     try {
       result = await task(this.cookie)

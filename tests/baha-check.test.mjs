@@ -366,9 +366,9 @@ test("全部執行：簽到 → 開始廣告 → 公會 → 答題 → 等 30 �
     { match: "topBar.php", body: GUILD_HTML },
     { match: "guildSign.php", body: { ok: 1, msg: "本日簽到成功！獲得5貢獻度" } },
     { match: "guildSign.php", body: { error: 1, msg: "您今天已經簽到過了！" } },
-    { match: "animeGetQuestion.php", body: { game: "G", question: "Q", a1: "1", a2: "2", a3: "3", a4: "4", token: "qtok" } },
     { match: "owner=blackXblue", body: { creation: [{ title: "11/12 答案", sn: 1 }, { title: "11/13 答案", sn: 555 }] } },
     { match: "home_creation_detail.php?sn=555", body: { content: "今天的答案<br>A:3<br>" } },
+    { match: "animeGetQuestion.php", body: { game: "G", question: "Q", a1: "1", a2: "2", a3: "3", a4: "4", token: "qtok" } },
     { match: "animeAnsQuestion.php", body: { ok: 1, gift: "恭喜您得到：300 巴幣" } },
     { match: "sign_in_ad_finished.php", body: { data: { finished: 1 } } },
   )
@@ -415,8 +415,8 @@ test("廣告被中斷：下次直接領，不重新開始", async () => {
     quiz: baha.makeExtra("miss", "答錯了"),
     ads: { ...baha.makeExtra("running", "領取中…"), startedAt: clock - 3 * 60_000 },
   })
-  assert.deepEqual(extras.describeExtra(baha.getState().ads), { text: "未完成", tone: "warn" })
-  assert.equal(extras.adRunning(baha.getState()), false)
+  assert.deepEqual(extras.describeExtra(baha.getState().ads), { text: "領取中…", tone: "warn" })
+  assert.equal(extras.adRunning(baha.getState()), true)
   routes.push(status(1, 5), { match: "sign_in_ad_finished.php", body: { data: { finished: 1 } } })
   const state = await extras.runAll({ wait: async () => assert.fail("已超過 30 秒，不用等") })
   assert.equal(state.ads.state, "done")
@@ -424,28 +424,30 @@ test("廣告被中斷：下次直接領，不重新開始", async () => {
 })
 
 test("答題：答案未公布、已作答、答錯", async () => {
-  routes.push(
-    { match: "animeGetQuestion.php", body: { token: "t" } },
-    { match: "owner=blackXblue", body: { creation: [{ title: "11/12 答案", sn: 1 }] } },
-  )
+  // 答案還沒公布：不用登入、不拿題目
+  routes.push({ match: "owner=blackXblue", body: { creation: [{ title: "11/12 答案", sn: 1 }] } })
   let r = await extras.animeQuiz("BAHARUNE=r")
   assert.deepEqual([r.extra.state, r.extra.text], ["wait", "答案未公布"])
+  assert.equal(calls.length, 1)
 
-  routes.push({ match: "animeGetQuestion.php", body: { error: 1, msg: "今日已經答過題目了，一天僅限一次機會" } })
+  const POST = [
+    { match: "owner=blackXblue", body: { creation: [{ title: "11/13 答案", sn: 7 }] } },
+    { match: "sn=7", body: { content: "A:1" } },
+  ]
+  routes.push(...POST, { match: "animeGetQuestion.php", body: { error: 1, msg: "今日已經答過題目了，一天僅限一次機會" } })
   r = await extras.animeQuiz("BAHARUNE=r")
   assert.deepEqual([r.extra.state, r.extra.text], ["done", "已作答"])
 
   routes.push(
+    ...POST,
     { match: "animeGetQuestion.php", body: { token: "t" } },
-    { match: "owner=blackXblue", body: { creation: [{ title: "11/13 答案", sn: 7 }] } },
-    { match: "sn=7", body: { content: "A:1" } },
     { match: "animeAnsQuestion.php", body: { error: 1, msg: "答題錯誤" } },
   )
   r = await extras.animeQuiz("BAHARUNE=r")
   assert.deepEqual([r.extra.state, r.extra.text], ["miss", "答錯了"])
   assert.equal(baha.isFinal(r.extra), true)
 
-  routes.push({ match: "animeGetQuestion.php", body: { error: 1, nologin: 1, msg: "請先登入" } })
+  routes.push(...POST, { match: "animeGetQuestion.php", body: { error: 1, nologin: 1, msg: "請先登入" } })
   await assert.rejects(extras.animeQuiz("BAHARUNE=r"), (e) => e.code === "NO_LOGIN")
 })
 
@@ -487,7 +489,7 @@ test("全部執行：帳密錯誤時其他項目不執行", async () => {
   assert.equal(calls.length, 1)
   assert.equal(state.errorCode, "LOGIN")
   assert.equal(state.guild, undefined)
-  assert.deepEqual(extras.describeExtra(state.guild), { text: "尚未執行", tone: "muted" })
+  assert.deepEqual(extras.describeExtra(state.guild), { text: "等待執行", tone: "muted" })
 })
 
 test("換日後其他項目重置，暱稱沿用", () => {
@@ -496,4 +498,144 @@ test("換日後其他項目重置，暱稱沿用", () => {
   assert.deepEqual(extras.todayExtras(baha.getState()), {})
   const next = baha.patchState({ checkedAt: clock })
   assert.deepEqual(next, { date: "2026-11-14", signed: false, days: 0, checkedAt: clock, nickname: "我" })
+})
+
+// ── 自動執行 ──
+
+const QUIZ_OK = [
+  { match: "owner=blackXblue", body: { creation: [{ title: "11/13 答案", sn: 8 }] } },
+  { match: "sn=8", body: { content: "A:2" } },
+  { match: "animeGetQuestion.php", body: { token: "qq" } },
+  { match: "animeAnsQuestion.php", body: { ok: 1, gift: "恭喜您得到：500 巴幣" } },
+]
+
+test("自動執行：已簽到時開始廣告、公會、答題，不等待；下次更新再領廣告", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  baha.patchState({ signed: true, days: 7, checkedAt: clock })
+  assert.deepEqual(extras.autoPlan(baha.getState()), { guild: true, quiz: true, ads: "start" })
+
+  routes.push(
+    { match: "get_csrf_token.php", body: "adtoken123456789" },
+    { match: "sign_in_ad_start.php", body: { data: { finished: 0 } } },
+    { match: "topBar.php", body: GUILD_HTML },
+    { match: "guildSign.php", body: { ok: 1 } },
+    { match: "guildSign.php", body: { ok: 1 } },
+    ...QUIZ_OK,
+  )
+  let state = await extras.autoExtras()
+  assert.equal(routes.length, 0)
+  assert.deepEqual([state.guild.text, state.quiz.text, state.ads.state], ["2 個公會", "+500 巴幣", "running"])
+  // 廣告領取中：盡快更新（至少一分鐘後）
+  assert.equal(extras.nextReload(state, true), clock + 60_000)
+
+  // 未滿 30 秒的更新：什麼都不做
+  calls = []
+  clock += 10_000
+  assert.deepEqual(extras.autoPlan(baha.getState()), { guild: false, quiz: false, ads: null })
+  await extras.autoExtras()
+  assert.equal(calls.length, 0)
+
+  // 滿 30 秒：領獎勵，全部完成後換日才更新
+  clock += 25_000
+  routes.push({ match: "sign_in_ad_finished.php", body: { data: { finished: 1 } } })
+  state = await extras.autoExtras()
+  assert.equal(state.ads.state, "done")
+  assert.equal(extras.allDone(state), true)
+  assert.equal(extras.nextReload(state, true), Date.parse("2026-11-13T16:02:00Z"))
+})
+
+test("自動執行：主站還沒簽到時只做公會與答題，廣告等簽到後", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  baha.patchState({ signed: false, days: 7, checkedAt: clock })
+  routes.push({ match: "topBar.php", body: "<div></div>" }, ...QUIZ_OK)
+  const state = await extras.autoExtras()
+  assert.equal(routes.length, 0)
+  assert.deepEqual([state.guild.state, state.quiz.state, state.ads], ["skip", "done", undefined])
+  assert.deepEqual(extras.describeExtra(state.ads, "簽到後自動領"), { text: "簽到後自動領", tone: "muted" })
+  // 簽到後（例如點了小工具）下一次更新就開始廣告
+  baha.patchState({ signed: true, days: 8 })
+  assert.deepEqual(extras.autoPlan(baha.getState()), { guild: false, quiz: false, ads: "start" })
+})
+
+test("自動執行：答案未公布或失敗時隔 30 分鐘再試", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  baha.patchState({ signed: false, checkedAt: clock, guild: baha.makeExtra("skip", "未加入公會") })
+  routes.push({ match: "owner=blackXblue", body: { creation: [] } })
+  let state = await extras.autoExtras()
+  assert.equal(state.quiz.state, "wait")
+  assert.equal(extras.nextReload(state, true), clock + 31 * 60_000)
+
+  calls = []
+  clock += 20 * 60_000
+  await extras.autoExtras()
+  assert.equal(calls.length, 0)
+
+  clock += 11 * 60_000
+  routes.push(...QUIZ_OK)
+  state = await extras.autoExtras()
+  assert.equal(state.quiz.state, "done")
+})
+
+test("自動執行：有人正在執行（鎖住）時跳過", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=r")
+  assert.equal(baha.acquireLock(), true)
+  await extras.autoExtras()
+  assert.equal(calls.length, 0)
+  // 鎖逾時（例如上次執行被系統中斷）就照常執行
+  clock += 91_000
+  routes.push({ match: "topBar.php", body: "<div></div>" }, { match: "owner=blackXblue", body: { creation: [] } })
+  await extras.autoExtras()
+  assert.equal(calls.length, 2)
+  assert.equal(baha.acquireLock(), true) // 執行完有釋放
+})
+
+test("自動執行：帳密被拒後當天停止自動登入，改密碼後恢復", async () => {
+  configure()
+  routes.push({ match: "do_login.php", body: { code: 0, message: "帳號、密碼或驗證碼錯誤！" } })
+  let state = await extras.autoExtras()
+  assert.equal(calls.length, 1)
+  assert.equal(state.errorCode, "LOGIN")
+  assert.equal(state.guild, undefined)
+  assert.deepEqual(extras.autoPlan(baha.getState()), { guild: false, quiz: false, ads: null })
+
+  clock += 2 * 3600_000
+  await extras.autoExtras()
+  assert.equal(calls.length, 1)
+
+  baha.saveCredentials({ uid: "me", pwd: "new-password" })
+  state = baha.getState()
+  assert.equal(state.errorCode, undefined)
+  assert.equal(baha.needsRefresh(state), true)
+  assert.deepEqual(extras.autoPlan(state), { guild: true, quiz: true, ads: null })
+})
+
+test("自動執行：網路失敗不當成帳密錯誤", async () => {
+  configure()
+  routes.push({ match: "do_login.php", fail: true })
+  const state = await extras.autoExtras()
+  assert.equal(state, null) // 還沒有今天的狀態
+  clock += 31 * 60_000
+  assert.deepEqual(extras.autoPlan(baha.getState()), { guild: true, quiz: true, ads: null })
+})
+
+test("自動執行：cookie 失效時重新登入一次再繼續", async () => {
+  configure()
+  keychain.set("baha_cookie", "BAHARUNE=old")
+  baha.patchState({ signed: false, checkedAt: clock })
+  routes.push(
+    { match: "topBar.php", body: GUILD_HTML },
+    { match: "guildSign.php", body: { error: 1, msg: "請先登入" } },
+    { match: "guildSign.php", body: { error: 1, msg: "請先登入" } },
+    LOGIN_OK,
+    { match: "topBar.php", body: "<div></div>" },
+    ...QUIZ_OK,
+  )
+  const state = await extras.autoExtras()
+  assert.equal(routes.length, 0)
+  assert.deepEqual([state.guild.state, state.quiz.state], ["skip", "done"])
+  assert.equal(keychain.get("baha_cookie"), "BAHARUNE=rune1; BAHAID=me")
 })
