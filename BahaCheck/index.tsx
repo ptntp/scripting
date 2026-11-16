@@ -37,8 +37,8 @@ const ORANGE = "#FF8A00"
 const RED = "#FF5A5F"
 const TONE: Record<Tone, string> = { ok: GREEN, muted: "secondaryLabel", warn: ORANGE, bad: RED }
 
-function ExtraRow({ title, extra, now }: { title: string; extra?: Extra; now: number }) {
-  const { text, tone } = describeExtra(extra, now)
+function ExtraRow({ title, extra, emptyText }: { title: string; extra?: Extra; emptyText?: string }) {
+  const { text, tone } = describeExtra(extra, emptyText)
   return (
     <VStack alignment="leading" spacing={2}>
       <Row label={title} value={text} color={TONE[tone]} />
@@ -190,11 +190,12 @@ function App() {
 
         <Section
           header={<Text>公會／動畫瘋／廣告</Text>}
-          footer={<Text>這三項只顯示在中尺寸小工具，點中尺寸小工具即可全部執行。廣告雙倍需要等約 30 秒；動畫瘋答案取自每日公布答案的小屋文章，不保證正確。</Text>}
+          footer={<Text>這三項會在小工具每次更新時自動執行（只在中尺寸小工具顯示）：公會與答題不需簽到，廣告雙倍在主站簽到後自動領取（開始後下次更新再領獎勵）。失敗或答案未公布時約 30 分鐘後自動重試。更新時間由 iOS 安排，可能有延遲；想立刻完成可按「全部執行」（廣告需等約 30 秒）。動畫瘋答案取自每日公布答案的小屋文章，不保證正確。</Text>}
         >
-          <ExtraRow title="公會簽到" extra={extras.guild} now={now} />
-          <ExtraRow title="動畫瘋答題" extra={extras.quiz} now={now} />
-          <ExtraRow title="廣告雙倍" extra={extras.ads} now={now} />
+          <ExtraRow title="公會簽到" extra={extras.guild} />
+          <ExtraRow title="動畫瘋答題" extra={extras.quiz} />
+          <ExtraRow title="廣告雙倍" extra={extras.ads}
+            emptyText={state?.signed && state.date === taipeiDate() ? "等待執行" : "簽到後自動領"} />
           <Button
             title={busy === "all" ? "執行中…（廣告約 30 秒）" : "全部執行"}
             systemImage="bolt"
