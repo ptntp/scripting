@@ -444,20 +444,17 @@ export async function fetchDevices(token: string): Promise<Device[]> {
 
 /**
  * verify.controld.com 只有經過 Control D 的 DNS 才解析得到（ctrld 文件的檢查方式）。
+ * 走 Control D 時這個網域的憑證有效，所以只有「收到 HTTP 回應」才算走 Control D。
  * - responded：有收到 HTTP 回應（DNS 解析成功）
- * - tls：DNS 解析成功但憑證不符，同樣代表走 Control D
- * - dns：連線失敗（主機解析不到；系統錯誤訊息會依語系翻譯，所以逾時以外的失敗都歸在這裡）
+ * - dns：連線失敗。Surge 等 VPN 會先在本機接下連線，解析失敗才斷線，App 看到的是
+ *   TLS 錯誤而不是「找不到主機」；系統錯誤訊息也會依語系翻譯，所以逾時以外的失敗都歸在這裡
  * - failed：逾時，可能只是網路慢
  */
-export type VerifyProbe = "responded" | "tls" | "dns" | "failed"
+export type VerifyProbe = "responded" | "dns" | "failed"
 export type Verify = "yes" | "no" | "unknown"
 
-const TLS_HINT = /ssl|tls|certificate|憑證|安全連線|-120[0-6]/i
-
 export function classifyProbeError(detail: string): VerifyProbe {
-  if (detail === "timeout") return "failed"
-  if (TLS_HINT.test(detail)) return "tls"
-  return "dns"
+  return detail === "timeout" ? "failed" : "dns"
 }
 
 async function probe(url: string): Promise<VerifyProbe> {
@@ -474,14 +471,13 @@ export async function probeVerify(): Promise<VerifyProbe> {
   const label = Math.random().toString(36).slice(2, 10) || "check"
   const results = await Promise.all([probe(`https://${VERIFY_HOST}/`), probe(`https://${label}.${VERIFY_HOST}/`)])
   if (results.includes("responded")) return "responded"
-  if (results.includes("tls")) return "tls"
   if (results.includes("dns")) return "dns"
   return "failed"
 }
 
 /** 搭配 API 是否連得上判斷：API 通、verify 解析不到才確定「沒走」。 */
 export function verdictOf(result: VerifyProbe, apiReachable: boolean): Verify {
-  if (result === "responded" || result === "tls") return "yes"
+  if (result === "responded") return "yes"
   if (result === "dns" && apiReachable) return "no"
   return "unknown"
 }
@@ -664,13 +660,14 @@ export function loggingDisabled(snap: Snapshot): boolean {
 }
 
 /**
- * 統計主機連不上時寫出主機名稱與系統的原始錯誤，方便判斷是不是被擋
- * （Surge 或擋廣告規則常用「analytics」關鍵字封鎖網域）。
+ * 統計主機連不上時寫出主機名稱與系統的原始錯誤，方便判斷是不是被擋。
+ * 常見原因是 Surge 擋廣告模組的 DOMAIN-KEYWORD,analytics,REJECT：Surge 在 TLS 握手時斷線，
+ * App 看到的是 TLS 錯誤。模組規則排在設定檔規則前面，所以例外規則要寫在模組裡才有效。
  */
 export function statsErrorText(error: unknown, host: string): string {
   if (!(error instanceof ControlDError) || error.code !== "NETWORK" || !host) return messageOf(error)
   const detail = error.detail && error.detail !== "timeout" ? error.detail : error.message
-  return `連不到統計主機 ${host}（${detail}）。有用 Surge 或擋廣告規則的話，請讓 *.analytics.controld.com 直連放行。`
+  return `連不到統計主機 ${host}（${detail}）。開著 Surge 的話，可能被擋廣告模組的 DOMAIN-KEYWORD,analytics 規則擋下；模組規則比設定檔優先，請把 DOMAIN-SUFFIX,analytics.controld.com,DIRECT 放進一個模組並啟用。`
 }
 
 export function nextReload(snap: Snapshot, now: number): number {

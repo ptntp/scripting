@@ -218,13 +218,14 @@ test("統計主機：個人在 stats_endpoint，組織在 org.stats_endpoint", (
   assert.equal(cd.analyticsBase("https://custom.example/"), "https://custom.example")
 })
 
-test("DNS 驗證：解析得到或憑證錯誤＝走 Control D；解析不到且 API 通＝沒走", () => {
+test("DNS 驗證：收到回應＝走 Control D；連不上（含 TLS 錯誤）且 API 通＝沒走", () => {
   assert.equal(cd.classifyProbeError("timeout"), "failed")
-  assert.equal(cd.classifyProbeError("An SSL error has occurred"), "tls")
-  assert.equal(cd.classifyProbeError("此伺服器的憑證無效"), "tls")
+  // Surge 解析失敗時會在 TLS 握手中斷線，錯誤訊息是 TLS 而不是找不到主機
+  assert.equal(cd.classifyProbeError("An SSL error has occurred"), "dns")
+  assert.equal(cd.classifyProbeError("TLS 錯誤導致安全連線失敗。"), "dns")
   assert.equal(cd.classifyProbeError("找不到具有所指定主機名稱的伺服器。"), "dns")
   assert.equal(cd.verdictOf("responded", false), "yes")
-  assert.equal(cd.verdictOf("tls", true), "yes")
+  assert.equal(cd.verdictOf("responded", true), "yes")
   assert.equal(cd.verdictOf("dns", true), "no")
   assert.equal(cd.verdictOf("dns", false), "unknown")
   assert.equal(cd.verdictOf("failed", true), "unknown")
@@ -287,10 +288,17 @@ test("DNS 解析不到 verify 網域（英文或中文錯誤訊息）＝沒走 C
   }
 })
 
-test("verify 網域憑證錯誤仍代表 DNS 走 Control D", async () => {
+test("verify 網域 TLS 錯誤不算走 Control D（Surge 解析失敗時的樣子）", async () => {
   setupHappyPath({ verify: "tls" })
   const snap = await cd.loadSnapshot({ now: NOW })
-  assert.equal(snap.verify, "yes")
+  assert.equal(snap.verify, "no")
+
+  // API 也連不上時無法判斷，不能說沒走
+  keychain.clear(); storage.clear(); routes = []
+  setupHappyPath({ verify: "tls" })
+  routes.unshift(["controld.com", () => { throw new Error("An SSL error has occurred and a secure connection to the server cannot be made.") }])
+  const offline = await cd.loadSnapshot({ now: NOW })
+  assert.equal(offline.verify, "unknown")
 })
 
 test("Token 無效：端點回 401 時顯示錯誤", async () => {
@@ -320,7 +328,7 @@ test("統計主機被擋（例如 Surge 規則）時寫出主機名稱與原始�
   assert.equal(snap.devices.length, 4)
   assert.equal(snap.verify, "yes")
   assert.equal(snap.statsError,
-    "連不到統計主機 asia-southeast1-usr01.analytics.controld.com（Could not connect to the server.）。有用 Surge 或擋廣告規則的話，請讓 *.analytics.controld.com 直連放行。")
+    "連不到統計主機 asia-southeast1-usr01.analytics.controld.com（Could not connect to the server.）。開著 Surge 的話，可能被擋廣告模組的 DOMAIN-KEYWORD,analytics 規則擋下；模組規則比設定檔優先，請把 DOMAIN-SUFFIX,analytics.controld.com,DIRECT 放進一個模組並啟用。")
   // 讀帳號（api.controld.com）就斷線時沒有主機名稱，維持一般訊息
   assert.equal(cd.statsErrorText(new cd.ControlDError("NETWORK", "網路連線失敗", 0, "x"), ""), "網路連線失敗")
 })

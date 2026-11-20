@@ -1,5 +1,11 @@
 # 更新日誌
 
+## 1.0.2 - 2026-11-21
+
+- 修正 DNS 路徑誤判：開著 Surge 時，`verify.controld.com` 解析失敗會變成 TLS 錯誤（Surge 先在本機接下連線、解析失敗才斷線），舊版把 TLS 錯誤當成「走 Control D」。現在只有收到 HTTP 回應才算走 Control D；真的走 Control D 時這個網域的憑證是有效的。
+- 統計主機被擋時的說明改成實際有效的修法：擋廣告模組（例如 Remove ADs）的 `DOMAIN-KEYWORD,analytics,REJECT` 排在設定檔規則前面，在設定檔加直連規則無效，要把 `DOMAIN-SUFFIX,analytics.controld.com,DIRECT` 放進一個模組並啟用。
+- 測試更新 3 項（DNS 判斷、TLS 錯誤情境、統計主機錯誤說明），合計 80 項通過。
+
 ## 1.0.1 - 2026-11-20
 
 - 統計主機連不上時，說明會寫出主機名稱與系統的原始錯誤，並提醒 Surge 或擋廣告規則可能封鎖了 `*.analytics.controld.com`。
