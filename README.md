@@ -8,6 +8,7 @@
 | --- | --- |
 | [`f1-widget/`](f1-widget/) | F1 小工具：下一節倒數、賽道路線圖、比賽週末賽程與天氣、積分榜、正賽結果（主畫面＋鎖定畫面） |
 | [`BahaCheck/`](BahaCheck/) | Baha Check：巴哈姆特每日自動簽到，並自動執行公會簽到、動畫瘋答題、廣告雙倍。小型顯示簽到狀態與連續天數，中型另外顯示其他三項 |
+| [`ControlDCheck/`](ControlDCheck/) | ControlD Check：Control D 封鎖比例與查詢統計、端點在線狀態、最常被擋的網域，並檢查這支 iPhone 的 DNS 是否走 Control D（主畫面小／中／大＋鎖定畫面） |
 | [`IPCheck/`](IPCheck/) | 網路診斷雷達：出口 IP、純淨度、國際／台灣延遲、HTTP/3、串流與 AI 解鎖檢測、Surge 節點與策略，附小／中／大型小工具；另有 IP 詳細檢測頁（多來源位置對照、風險評分、WebRTC 洩漏檢查） |
 
 ## 在 iPhone 上安裝（自動同步）
@@ -18,6 +19,7 @@
 https://github.com/ptntp/scripting/tree/main/f1-widget
 https://github.com/ptntp/scripting/tree/main/IPCheck
 https://github.com/ptntp/scripting/tree/main/BahaCheck
+https://github.com/ptntp/scripting/tree/main/ControlDCheck
 ```
 
 之後在 GitHub 上修改檔案並 commit，iPhone 會在下次檢查時自動更新（最短每 30 分鐘檢查一次）。
@@ -42,6 +44,14 @@ https://raw.githubusercontent.com/ptntp/scripting/main/IPCheck/surge/ipcheck-rad
 4. 公會簽到、動畫瘋答題、廣告雙倍也會在小工具每次更新時自動執行，結果顯示在中型小工具。廣告雙倍在主站簽到後自動開始，約 1 分鐘後的更新再領獎勵；動畫瘋答案取自每天公布答案的小屋文章，公布前顯示「答案未公布」，約 30 分鐘自動重試。更新時間由 iOS 安排，可能延後；想立刻完成可點中型小工具全部執行。
 5. 帳密被拒時，小工具當天不會在背景重試登入（避免帳號被鎖），修正後點小工具或在 App 內按「立即簽到」即可。
 
+## ControlD Check 使用方式
+
+1. 到 Control D 網頁版 Preferences → API 建立 API Token，權限選 **Read** 就夠用。
+2. 開啟 ControlD Check，把 Token 貼到「API Token」欄位後按儲存。Token 只存在 iPhone 的 Keychain，不會寫進這個 repo。
+3. 在主畫面或鎖定畫面加入 Scripting 的小工具並選 ControlD Check。小工具參數可填 `today`、`24h`、`7d`、`30d` 指定統計區間，留空就跟隨 App 裡的設定。
+4. 右上角盾牌是這支 iPhone 的 DNS 路徑：綠色代表有走 Control D，橘色代表沒走（用 `verify.controld.com` 判斷，這個網域只有經過 Control D 的 DNS 才解析得到）。開著 Surge 等 VPN 時，結果反映的是 VPN 實際使用的 DNS。
+5. 統計需要端點有開啟分析紀錄（Analytics）；全部端點都沒開時，App 會提示。
+
 ## 致謝
 
 F1 Widget 參考以下來源建立，感謝他們給我的靈感：
@@ -60,5 +70,12 @@ Baha Check 的登入與簽到流程參考：
 
 - **BahamutDailyBonus（Surge 模組）**：https://github.com/jkgtw/Surge/blob/master/Modules/BahamutDailyBonus.sgmodule
 - **BahamutDailyBonus.js**：https://github.com/jkgtw/Surge/blob/master/JS/BahamutDailyBonus.js（原作 NobyDa）
+
+ControlD Check 的小工具設計與 API 用法參考：
+
+- **ControlHub（Control D 第三方 App）**：https://apps.apple.com/app/id6475387909
+- **Control D API 文件**：https://docs.controld.com
+- **Control D Manager for Home Assistant**（統計 API 的實測紀錄）：https://github.com/ccpk1/controld-manager-ha
+- **ctrld**（`verify.controld.com` 驗證方式）：https://github.com/Control-D-Inc/ctrld
 
 資料來源與第三方授權聲明請見 [`f1-widget/README.md`](f1-widget/README.md)。
