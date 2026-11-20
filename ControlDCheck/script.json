@@ -2,7 +2,7 @@
   "icon": "shield.lefthalf.filled",
   "color": "#6D5DFC",
   "name": "ControlD Check",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Control D 狀態小工具：封鎖比例與查詢統計、端點在線狀態、最常被擋的網域，並檢查這支 iPhone 的 DNS 是否走 Control D。支援主畫面小／中／大與鎖定畫面。API Token 只存在本機 Keychain。",
   "localizedNames": {
     "zh": "ControlD Check"

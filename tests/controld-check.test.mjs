@@ -312,6 +312,19 @@ test("統計主機拒絕 Token 時，端點照常顯示並說明原因", async (
   assert.equal(snap.devices.length, 4)
 })
 
+test("統計主機被擋（例如 Surge 規則）時寫出主機名稱與原始錯誤", async () => {
+  setupHappyPath()
+  routes.unshift(["analytics.controld.com", () => { throw new Error("Could not connect to the server.") }])
+  const snap = await cd.loadSnapshot({ now: NOW })
+  assert.equal(snap.error, "")
+  assert.equal(snap.devices.length, 4)
+  assert.equal(snap.verify, "yes")
+  assert.equal(snap.statsError,
+    "連不到統計主機 asia-southeast1-usr01.analytics.controld.com（Could not connect to the server.）。有用 Surge 或擋廣告規則的話，請讓 *.analytics.controld.com 直連放行。")
+  // 讀帳號（api.controld.com）就斷線時沒有主機名稱，維持一般訊息
+  assert.equal(cd.statsErrorText(new cd.ControlDError("NETWORK", "網路連線失敗", 0, "x"), ""), "網路連線失敗")
+})
+
 test("API 錯誤訊息會帶進說明", async () => {
   setupHappyPath()
   routes.unshift(["api.controld.com/devices", () => json(500, { success: false, error: { message: "Maintenance" } })])

@@ -570,10 +570,12 @@ export async function loadSnapshot(opts: { range?: RangeKey; top?: boolean; now?
   }
   const w: Window = { start: snap.start, end: snap.end }
 
+  let statsHost = ""
   const statsTask = (async () => {
     const endpoint = await resolveStatsEndpoint(token, now)
     if (!endpoint) throw new ControlDError("API", "帳號沒有統計主機，可能尚未開啟分析紀錄")
     const base = analyticsBase(endpoint)
+    statsHost = base.replace(/^https?:\/\//i, "").replace(/\/.*$/, "")
     const [stats, prev, top] = await Promise.all([
       fetchCounts(base, token, w),
       fetchPrevious(base, token, range, w, now).catch(() => null),
@@ -607,7 +609,7 @@ export async function loadSnapshot(opts: { range?: RangeKey; top?: boolean; now?
     snap.prev = statsResult.value.prev
     snap.top = statsResult.value.top
   } else {
-    snap.statsError = messageOf(statsResult.reason)
+    snap.statsError = statsErrorText(statsResult.reason, statsHost)
     if (codeOf(statsResult.reason) === "NETWORK" && sameRange?.stats) {
       snap.stats = sameRange.stats
       snap.prev = sameRange.prev
@@ -659,6 +661,16 @@ export function fallbackSnapshot(range: RangeKey | undefined, now: number, messa
 /** 所有端點都沒開分析紀錄時，統計一定是 0 */
 export function loggingDisabled(snap: Snapshot): boolean {
   return !!snap.devices && snap.devices.length > 0 && snap.devices.every((d) => d.logging === 0)
+}
+
+/**
+ * 統計主機連不上時寫出主機名稱與系統的原始錯誤，方便判斷是不是被擋
+ * （Surge 或擋廣告規則常用「analytics」關鍵字封鎖網域）。
+ */
+export function statsErrorText(error: unknown, host: string): string {
+  if (!(error instanceof ControlDError) || error.code !== "NETWORK" || !host) return messageOf(error)
+  const detail = error.detail && error.detail !== "timeout" ? error.detail : error.message
+  return `連不到統計主機 ${host}（${detail}）。有用 Surge 或擋廣告規則的話，請讓 *.analytics.controld.com 直連放行。`
 }
 
 export function nextReload(snap: Snapshot, now: number): number {
